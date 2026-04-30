@@ -1,7 +1,7 @@
 import os
 import re
 import json
-from typing import Optional, Literal
+from typing import Optional, Union
 import httpx
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
@@ -64,41 +64,87 @@ async def web_fetch(
     return results
 
 @mcp.tool()
-async def web_search(
-    query: str,
-    provider: Literal["brave", "google", "tavily"] = "tavily",
-    num_results: int = 10
-) -> dict:
+async def web_search(searches: list[dict]) -> list[dict]:
     """
-    Search the web using Brave, Google, or Tavily.
+    Execute one or more web searches using Brave, Google, or Tavily.
 
     Args:
-        query: The search query string
-        provider: Which search provider to use (brave, google, tavily)
-        num_results: Number of results to return (default 10)
+        searches: List of search specifications. Each dict supports:
+            - query (str): The search query string (required)
+            - provider (str): Which provider to use: "brave", "google", "tavily" (default: "tavily")
+            - num_results (int): Number of results to return (default: 10, max varies by provider)
+            - start_date (str): YYYY-MM-DD format. Results after this date.
+                              Only supported for brave/tavily; ignored for google.
+            - end_date (str): YYYY-MM-DD format. Results before this date.
+                             Only supported for brave/tavily; ignored for google.
+            - offset (int): Starting index for pagination. Only supported for brave/google;
+                           tavily does not support offsets (use multiple searches instead).
 
     Returns:
-        Dict with 'results' list containing title, url, description for each result
+        List of results, one per search spec:
+        [{"query": "...", "provider": "...", "results": [{"title": "...", "url": "...", "snippet": "..."}, ...]}, ...]
+        Errors are included inline: {"query": "...", "error": "...", "provider": "..."}
     """
-    if provider == "tavily":
-        return await _search_tavily(query, num_results)
-    elif provider == "brave":
-        return await _search_brave(query, num_results)
-    elif provider == "google":
-        return await _search_google(query, num_results)
-    else:
-        return {"error": f"Unknown provider: {provider}"}
+    results = []
 
-async def _search_tavily(query: str, num_results: int) -> dict:
+    for search_spec in searches:
+        query = search_spec.get("query", "")
+        if not query:
+            results.append({"error": "Missing required field: query"})
+            continue
+
+        provider = search_spec.get("provider", "tavily")
+        num_results = min(search_spec.get("num_results", 10), 20)
+        start_date = search_spec.get("start_date") or None
+        end_date = search_spec.get("end_date") or None
+        offset = search_spec.get("offset") or 0
+
+        if provider == "tavily":
+            result = await _search_tavily(query, num_results, start_date=start_date, end_date=end_date)
+        elif provider == "brave":
+            result = await _search_brave(query, num_results, start_date=start_date, end_date=end_date, offset=offset)
+        elif provider == "google":
+            result = await _search_google(query, num_results, offset=offset)
+        else:
+            results.append({"query": query, "provider": provider, "error": f"Unknown provider: {provider}"})
+            continue
+
+        # Normalize to flat format with snippet field name
+        if "error" in result:
+            results.append({"query": query, "provider": provider, **result})
+        else:
+            normalized = {
+                "query": query,
+                "provider": provider,
+                "results": [
+                    {"title": r.get("title", ""), "url": r["url"], "snippet": r.get("description", "")}
+                    for r in result.get("results", [])
+                ]
+            }
+            if start_date and provider != "google":
+                normalized["start_date"] = start_date
+            if end_date and provider != "google":
+                normalized["end_date"] = end_date
+            results.append(normalized)
+
+    return results
+
+async def _search_tavily(query: str, num_results: int, start_date: str = None, end_date: str = None) -> dict:
     api_key = os.getenv("TAVILY_API_KEY")
     if not api_key:
         return {"error": "TAVILY_API_KEY not configured in .env"}
+
+    payload = {"query": query, "search_depth": "basic", "max_results": num_results}
+    if start_date:
+        payload["start_date"] = start_date
+    if end_date:
+        payload["end_date"] = end_date
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 "https://api.tavily.com/search",
-                json={"query": query, "search_depth": "basic", "max_results": num_results},
+                json=payload,
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             )
             resp.raise_for_status()
@@ -108,19 +154,41 @@ async def _search_tavily(query: str, num_results: int) -> dict:
             {"title": r["title"], "url": r["url"], "description": r.get("content", "")[:200]}
             for r in data.get("results", [])[:num_results]
         ]
-        return {"query": query, "provider": "tavily", "count": len(results), "results": results}
+        return {"count": len(results), "results": results}
     except Exception as e:
         return {"error": f"Tavily search failed: {str(e)}"}
 
-async def _search_brave(query: str, num_results: int) -> dict:
+def _brave_freshness(start_date: str = None, end_date: str = None) -> str:
+    """Convert date range to Brave freshness parameter."""
+    if start_date and end_date:
+        return f"{start_date}to{end_date}"
+    elif start_date:
+        # Default end to today for single-sided ranges
+        from datetime import date
+        return f"{start_date}to{date.today().isoformat()}"
+    elif end_date:
+        return f"1900-01-01to{end_date}"
+    return ""
+
+
+async def _search_brave(query: str, num_results: int, start_date: str = None, end_date: str = None, offset: int = 0) -> dict:
     api_key = os.getenv("BRAVE_API_KEY")
     if not api_key:
         return {"error": "BRAVE_API_KEY not configured in .env"}
 
+    params = {"q": query, "count": min(num_results, 20)}
+    if offset > 0:
+        params["offset"] = offset
+
+    freshness = _brave_freshness(start_date, end_date)
+    if freshness:
+        params["freshness"] = freshness
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                f"https://api.search.brave.com/res/v1/web/search?q={query}&count={num_results}",
+                "https://api.search.brave.com/res/v1/web/search",
+                params=params,
                 headers={"X-Subscription-Token": api_key, "Accept": "application/json"}
             )
             resp.raise_for_status()
@@ -131,11 +199,11 @@ async def _search_brave(query: str, num_results: int) -> dict:
             {"title": r["title"], "url": r["url"], "description": r.get("description", "")[:200]}
             for r in web_results[:num_results]
         ]
-        return {"query": query, "provider": "brave", "count": len(results), "results": results}
+        return {"count": len(results), "results": results}
     except Exception as e:
         return {"error": f"Brave search failed: {str(e)}"}
 
-async def _search_google(query: str, num_results: int) -> dict:
+async def _search_google(query: str, num_results: int, offset: int = 0) -> dict:
     api_key = os.getenv("GOOGLE_API_KEY")
     cx = os.getenv("GOOGLE_SEARCH_ENGINE_ID")
     if not api_key or not cx:
@@ -143,9 +211,13 @@ async def _search_google(query: str, num_results: int) -> dict:
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
+            params = {"key": api_key, "cx": cx, "q": query, "num": min(num_results, 10)}
+            if offset > 0:
+                params["start"] = offset + 1  # Google uses 1-based index
+
             resp = await client.get(
                 "https://www.googleapis.com/customsearch/v1",
-                params={"key": api_key, "cx": cx, "q": query, "num": min(num_results, 10)}
+                params=params
             )
             resp.raise_for_status()
             data = resp.json()
@@ -154,7 +226,7 @@ async def _search_google(query: str, num_results: int) -> dict:
             {"title": r["title"], "url": r["link"], "description": r.get("snippet", "")[:200]}
             for r in data.get("items", [])[:num_results]
         ]
-        return {"query": query, "provider": "google", "count": len(results), "results": results}
+        return {"count": len(results), "results": results}
     except Exception as e:
         return {"error": f"Google search failed: {str(e)}"}
 
