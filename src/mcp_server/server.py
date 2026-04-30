@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from datetime import datetime, timedelta
 from typing import Optional, Union
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -73,10 +74,8 @@ async def web_search(searches: list[dict]) -> list[dict]:
             - query (str): The search query string (required)
             - provider (str): Which provider to use: "brave", "google", "tavily" (default: "tavily")
             - num_results (int): Number of results to return (default: 10, max varies by provider)
-            - start_date (str): YYYY-MM-DD format. Results after this date.
-                              Only supported for brave/tavily; ignored for google.
-            - end_date (str): YYYY-MM-DD format. Results before this date.
-                             Only supported for brave/tavily; ignored for google.
+            - days (int): Filter results to the last N days. 0 means no date filtering.
+                         Only supported for brave/tavily; ignored for google.
             - offset (int): Starting index for pagination. Only supported for brave/google;
                            tavily does not support offsets (use multiple searches instead).
 
@@ -95,14 +94,13 @@ async def web_search(searches: list[dict]) -> list[dict]:
 
         provider = search_spec.get("provider", "tavily")
         num_results = min(search_spec.get("num_results", 10), 20)
-        start_date = search_spec.get("start_date") or None
-        end_date = search_spec.get("end_date") or None
+        days = search_spec.get("days", 0) or 0
         offset = search_spec.get("offset") or 0
 
         if provider == "tavily":
-            result = await _search_tavily(query, num_results, start_date=start_date, end_date=end_date)
+            result = await _search_tavily(query, num_results, days=days)
         elif provider == "brave":
-            result = await _search_brave(query, num_results, start_date=start_date, end_date=end_date, offset=offset)
+            result = await _search_brave(query, num_results, days=days, offset=offset)
         elif provider == "google":
             result = await _search_google(query, num_results, offset=offset)
         else:
@@ -121,24 +119,21 @@ async def web_search(searches: list[dict]) -> list[dict]:
                     for r in result.get("results", [])
                 ]
             }
-            if start_date and provider != "google":
-                normalized["start_date"] = start_date
-            if end_date and provider != "google":
-                normalized["end_date"] = end_date
             results.append(normalized)
 
     return results
 
-async def _search_tavily(query: str, num_results: int, start_date: str = None, end_date: str = None) -> dict:
+async def _search_tavily(query: str, num_results: int, days: int = 0) -> dict:
     api_key = os.getenv("TAVILY_API_KEY")
     if not api_key:
         return {"error": "TAVILY_API_KEY not configured in .env"}
 
     payload = {"query": query, "search_depth": "basic", "max_results": num_results}
-    if start_date:
+    
+    # Compute start_date from days parameter
+    if days > 0:
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         payload["start_date"] = start_date
-    if end_date:
-        payload["end_date"] = end_date
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -158,20 +153,23 @@ async def _search_tavily(query: str, num_results: int, start_date: str = None, e
     except Exception as e:
         return {"error": f"Tavily search failed: {str(e)}"}
 
-def _brave_freshness(start_date: str = None, end_date: str = None) -> str:
-    """Convert date range to Brave freshness parameter."""
-    if start_date and end_date:
-        return f"{start_date}to{end_date}"
-    elif start_date:
-        # Default end to today for single-sided ranges
-        from datetime import date
-        return f"{start_date}to{date.today().isoformat()}"
-    elif end_date:
-        return f"1900-01-01to{end_date}"
-    return ""
+def _brave_freshness(days: int = 0) -> str:
+    """Convert days to Brave freshness period parameter."""
+    if days <= 0:
+        return ""
+    elif days <= 1:
+        return "pd"  # 24 hours
+    elif days <= 7:
+        return "pw"  # 7 days
+    elif days <= 31:
+        return "pm"  # 31 days
+    elif days <= 365:
+        return "py"  # 365 days
+    else:
+        return ""  # No freshness filter for > 365 days
 
 
-async def _search_brave(query: str, num_results: int, start_date: str = None, end_date: str = None, offset: int = 0) -> dict:
+async def _search_brave(query: str, num_results: int, days: int = 0, offset: int = 0) -> dict:
     api_key = os.getenv("BRAVE_API_KEY")
     if not api_key:
         return {"error": "BRAVE_API_KEY not configured in .env"}
@@ -180,7 +178,7 @@ async def _search_brave(query: str, num_results: int, start_date: str = None, en
     if offset > 0:
         params["offset"] = offset
 
-    freshness = _brave_freshness(start_date, end_date)
+    freshness = _brave_freshness(days)
     if freshness:
         params["freshness"] = freshness
 

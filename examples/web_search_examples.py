@@ -7,7 +7,7 @@ Loads API keys from .env in project root.
 The new multi-query API accepts a list of search specifications:
     searches = [
         {"query": "...", "provider": "tavily", "num_results": 5},
-        {"query": "...", "provider": "brave", "num_results": 3, "start_date": "2025-01-01"},
+        {"query": "...", "provider": "brave", "num_results": 3, "days": 90},
     ]
     results = await real_web_search(searches)
 
@@ -15,10 +15,11 @@ Each search dict supports:
     - query (str): The search query string (required)
     - provider (str): Which provider to use: "brave", "google", "tavily" (default: "tavily")
     - num_results (int): Number of results to return (default: 10, max varies by provider)
-    - start_date (str): YYYY-MM-DD format. Results after this date.
-                      Only supported for brave/tavily; ignored for google.
-    - end_date (str): YYYY-MM-DD format. Results before this date.
-                     Only supported for brave/tavily; ignored for google.
+    - days (int): Filter results to last N days. Simpler than start_date/end_date.
+                  - Tavily: computes a start_date internally based on the days value
+                  - Brave: uses freshness period codes (pd=1, pw=7, pm=31, py=365)
+                  - Google: ignores this parameter silently
+                  - Omit or set to 0 for no date filtering
     - offset (int): Starting index for pagination. Only supported for brave/google;
                    tavily does not support offsets.
 """
@@ -47,10 +48,10 @@ def print_results(result: dict):
 
     print(f"\nProvider: {result.get('provider', 'unknown')}")
     print(f"Query: '{result.get('query', '')}'")
-    if result.get("start_date"):
-        print(f"Start Date Filter: {result['start_date']}")
-    if result.get("end_date"):
-        print(f"End Date Filter: {result['end_date']}")
+    if result.get("days"):
+        print(f"Date Filter: Last {result['days']} days")
+    elif result.get("days") == 0:
+        print(f"Date Filter: None (all results)")
     print(f"Results found: {len(result.get('results', []))}")
     print("-" * 50)
 
@@ -126,9 +127,17 @@ async def example_google():
 
 
 async def example_date_filtering():
-    """Example 4: Date filtering with brave/tavily providers."""
+    """Example 4: Date filtering with brave/tavily providers.
+    
+    The days parameter is simpler than start_date/end_date:
+    - days=1: Last 24 hours (Brave uses 'pd' freshness code)
+    - days=7: Last 7 days (Brave uses 'pw')
+    - days=31: Last 31 days (Brave uses 'pm')
+    - days=365: Last 365 days (Brave uses 'py')
+    - days=0 or omitted: No date filtering
+    """
     print("\n" + "=" * 60)
-    print("EXAMPLE 4: Date Filtering (brave/tavily)")
+    print("EXAMPLE 4: Date Filtering with 'days' parameter")
     print("=" * 60)
 
     # Check which providers are available for date filtering demo
@@ -141,35 +150,64 @@ async def example_date_filtering():
 
     searches = []
     
-    # Date filtering example for Tavily (start_date and end_date)
+    # Date filtering examples for different providers using the simpler 'days' parameter
     if has_tavily:
         searches.append({
             "query": "Python asyncio tutorial",
             "provider": "tavily",
             "num_results": 3,
-            "start_date": "2024-01-01",
-            "end_date": "2024-12-31"
+            "days": 730  # Last 2 years - Tavily computes start_date internally
         })
     
-    # Date filtering example for Brave (freshness parameter)
     if has_brave:
         searches.append({
             "query": "Python asyncio tutorial",
             "provider": "brave",
             "num_results": 3,
-            "start_date": "2025-01-01"
+            "days": 730  # Last 2 years - Brave uses 'py' freshness code
         })
 
-    print(f"\nSearching with date filters applied:")
+    print(f"\nSearching with date filters (using 'days' parameter):")
+    results = await real_web_search(searches)
+    for result in results:
+        print_results(result)
+
+
+async def example_date_filtering_options():
+    """Example 5: Demonstrate all date filtering options.
+    
+    Shows the different freshness period values and their Brave equivalents:
+    - days=1 or 'pd': Past day (24 hours)
+    - days=7 or 'pw': Past week
+    - days=31 or 'pm': Past month
+    - days=365 or 'py': Past year
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 5: Date Filtering Options (Brave freshness periods)")
+    print("=" * 60)
+
+    if not os.getenv("BRAVE_API_KEY"):
+        print("\nSkipping: BRAVE_API_KEY not set in .env")
+        return
+
+    # Demonstrate different date filtering options with Brave
+    searches = [
+        {"query": "Python tutorial", "provider": "brave", "num_results": 2, "days": 1},   # Past day (pd)
+        {"query": "Python tutorial", "provider": "brave", "num_results": 2, "days": 7},   # Past week (pw)
+        {"query": "Python tutorial", "provider": "brave", "num_results": 2, "days": 31},  # Past month (pm)
+        {"query": "Python tutorial", "provider": "brave", "num_results": 2, "days": 365}, # Past year (py)
+    ]
+
+    print(f"\nSearching with various date filters:")
     results = await real_web_search(searches)
     for result in results:
         print_results(result)
 
 
 async def example_offset_pagination():
-    """Example 5: Offset pagination for brave/google providers."""
+    """Example 6: Offset pagination for brave/google providers."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 5: Offset Pagination (brave/google)")
+    print("EXAMPLE 6: Offset Pagination (brave/google)")
     print("=" * 60)
 
     # Check which providers are available for offset demo
@@ -218,10 +256,10 @@ async def example_offset_pagination():
         print_results(result)
 
 
-async def example_google_ignores_dates():
-    """Example 6: Demonstrate that Google ignores date filters silently."""
+async def example_google_ignores_days():
+    """Example 7: Demonstrate that Google ignores the days parameter silently."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 6: Google Ignores Date Filters (graceful degradation)")
+    print("EXAMPLE 7: Google Ignores 'days' Parameter (graceful degradation)")
     print("=" * 60)
 
     if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_SEARCH_ENGINE_ID"):
@@ -234,23 +272,22 @@ async def example_google_ignores_dates():
             "query": "Python asyncio tutorial",
             "provider": "google",
             "num_results": 5,
-            "start_date": "2025-01-01",  # This will be ignored by Google
-            "end_date": "2025-12-31"     # This will also be ignored by Google
+            "days": 7  # This will be ignored by Google silently
         }
     ]
     
     print(f"\nNote: Google Custom Search API does not support date filtering.")
-    print("The start_date/end_date parameters are silently ignored for google provider.")
+    print("The 'days' parameter is silently ignored for google provider.")
     results = await real_web_search(searches)
     for result in results:
-        # Note: result will NOT have start_date/end_date fields since Google doesn't support them
+        # Note: result will NOT have days field since Google doesn't support it
         print_results(result)
 
 
 async def example_multiple_queries():
-    """Example 7: Execute multiple queries in a single API call."""
+    """Example 8: Execute multiple queries in a single API call."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 7: Multiple Queries (single API call)")
+    print("EXAMPLE 8: Multiple Queries (single API call)")
     print("=" * 60)
 
     # Build list of searches based on available API keys
@@ -260,7 +297,7 @@ async def example_multiple_queries():
         searches.append({"query": "Python asyncio tutorial", "provider": "tavily", "num_results": 2})
     
     if os.getenv("BRAVE_API_KEY"):
-        searches.append({"query": "Latest Python news", "provider": "brave", "num_results": 2, "start_date": "2025-01-01"})
+        searches.append({"query": "Latest Python news", "provider": "brave", "num_results": 2, "days": 7})
     
     if os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_SEARCH_ENGINE_ID"):
         searches.append({"query": "Python best practices", "provider": "google", "num_results": 2})
@@ -277,9 +314,9 @@ async def example_multiple_queries():
 
 
 async def example_error_handling():
-    """Example 8: Error handling for unknown provider and missing query."""
+    """Example 9: Error handling for unknown provider and missing query."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 8: Error Handling (graceful degradation)")
+    print("EXAMPLE 9: Error Handling (graceful degradation)")
     print("=" * 60)
 
     # Test with unknown provider - should return error in results
@@ -304,9 +341,9 @@ async def example_error_handling():
 
 
 async def example_config_check():
-    """Example 9: Check which providers are configured."""
+    """Example 10: Check which providers are configured."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 9: Provider Configuration Status")
+    print("EXAMPLE 10: Provider Configuration Status")
     print("=" * 60)
 
     print("\nConfigured API keys:")
@@ -317,15 +354,16 @@ async def example_config_check():
 
 async def main():
     print("\n" + "#" * 60)
-    print("# web_search Examples (using new multi-query API)")
+    print("# web_search Examples (using new multi-query API with 'days' parameter)")
     print("#" * 60)
 
     await example_tavily()
     await example_brave()
     await example_google()
     await example_date_filtering()
+    await example_date_filtering_options()
     await example_offset_pagination()
-    await example_google_ignores_dates()
+    await example_google_ignores_days()
     await example_multiple_queries()
     await example_error_handling()
     await example_config_check()
