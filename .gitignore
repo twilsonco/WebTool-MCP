@@ -1,0 +1,16 @@
+# macos, windows, linux file explorer metadata files
+.DS_Store
+Thumbs.db
+
+.env
+.env.local
+
+*.alterworkspace
+.alter
+.vscode
+
+# pyc files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
