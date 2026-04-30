@@ -14,6 +14,12 @@ mcp = FastMCP("WebTool")
 # Configuration from .env
 BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:11434/v1")
 MODEL_NAME = os.getenv("LLM_MODEL_NAME", "llama3.2")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Default headers for HTTP requests (User-Agent required by many sites)
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
 
 @mcp.tool()
 async def web_fetch(
@@ -26,7 +32,7 @@ async def web_fetch(
 ) -> dict:
     """Fetch URLs, convert to markdown, and optionally filter via regex."""
     results = {}
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient(follow_redirects=True, headers=DEFAULT_HEADERS) as client:
         for url in urls:
             try:
                 resp = await client.get(url, timeout=10.0)
@@ -162,11 +168,16 @@ async def _call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
+    headers = {"Content-Type": "application/json"}
+    if OPENAI_API_KEY:
+        headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
+
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
                 f"{BASE_URL}/chat/completions",
-                json={"model": MODEL_NAME, "messages": messages}
+                json={"model": MODEL_NAME, "messages": messages},
+                headers=headers
             )
             resp.raise_for_status()
             data = resp.json()
