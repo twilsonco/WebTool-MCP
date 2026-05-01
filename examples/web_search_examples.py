@@ -24,6 +24,7 @@ Each search dict supports:
                    tavily does not support offsets.
 """
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -39,6 +40,22 @@ load_dotenv(project_root / ".env")
 # Import the actual implementation from server.py
 # web_search is the main tool; _search_tavily/_search_brave/_search_google are internal helpers
 from src.mcp_server.server import web_search as real_web_search
+
+DRY_RUN = False
+
+
+def dry_run_searches(searches: list[dict], title: str | None = None):
+    """Print searches that would be executed (dry-run mode)."""
+    if title:
+        print(f"\n{title}")
+    print(f"  Would execute {len(searches)} search(es) with web_search():")
+    for s in searches:
+        # Pretty-print each search spec
+        provider = s.get("provider", "tavily")
+        query = s.get("query", "(missing)")
+        extras = {k: v for k, v in s.items() if k not in ("query", "provider")}
+        extra_str = f", {extras}" if extras else ""
+        print(f"    - {json.dumps(s)}")
 
 
 def print_results(result: dict):
@@ -74,12 +91,16 @@ async def example_tavily():
         print("\nSkipping: TAVILY_API_KEY not set in .env")
         return
 
-    # API: pass a list of search specifications
     searches = [
         {"query": "Python asyncio tutorial", "provider": "tavily", "num_results": 3}
     ]
+
+    if DRY_RUN:
+        dry_run_searches(searches, "Tavily Search")
+        return
+
     results = await real_web_search(searches)
-    
+
     print(f"\nSearching with Tavily Search")
     for result in results:
         print_results(result)
@@ -95,12 +116,16 @@ async def example_brave():
         print("\nSkipping: BRAVE_API_KEY not set in .env")
         return
 
-    # API: pass a list of search specifications
     searches = [
         {"query": "Python asyncio tutorial", "provider": "brave", "num_results": 5}
     ]
+
+    if DRY_RUN:
+        dry_run_searches(searches, "Brave Search")
+        return
+
     results = await real_web_search(searches)
-    
+
     print(f"\nSearching with Brave Search")
     for result in results:
         print_results(result)
@@ -116,12 +141,16 @@ async def example_google():
         print("\nSkipping: GOOGLE_API_KEY and/or GOOGLE_SEARCH_ENGINE_ID not set in .env")
         return
 
-    # API: pass a list of search specifications
     searches = [
         {"query": "Python asyncio tutorial", "provider": "google", "num_results": 5}
     ]
+
+    if DRY_RUN:
+        dry_run_searches(searches, "Google Search")
+        return
+
     results = await real_web_search(searches)
-    
+
     print(f"\nSearching with Google Custom Search")
     for result in results:
         print_results(result)
@@ -171,6 +200,11 @@ async def example_date_filtering():
         })
 
     print(f"\nSearching with date filters (using 'days' parameter):")
+
+    if DRY_RUN:
+        dry_run_searches(searches)
+        return
+
     results = await real_web_search(searches)
     for result in results:
         print_results(result)
@@ -202,6 +236,11 @@ async def example_date_filtering_options():
     ]
 
     print(f"\nSearching with various date filters:")
+
+    if DRY_RUN:
+        dry_run_searches(searches)
+        return
+
     results = await real_web_search(searches)
     for result in results:
         print_results(result)
@@ -254,6 +293,11 @@ async def example_offset_pagination():
         })
 
     print(f"\nSearching with offset pagination:")
+
+    if DRY_RUN:
+        dry_run_searches(searches)
+        return
+
     results = await real_web_search(searches)
     for result in results:
         print_results(result)
@@ -281,6 +325,11 @@ async def example_google_ignores_days():
     
     print(f"\nNote: Google Custom Search API does not support date filtering.")
     print("The 'days' parameter is silently ignored for google provider.")
+
+    if DRY_RUN:
+        dry_run_searches(searches)
+        return
+
     results = await real_web_search(searches)
     for result in results:
         # Note: result will NOT have days field since Google doesn't support it
@@ -296,13 +345,13 @@ async def example_multiple_queries(providers_to_test: list[str] | None = None):
 
     # Build list of searches based on REQUESTED providers, not available API keys
     searches = []
-    
+
     if os.getenv("TAVILY_API_KEY"):
         searches.append({"query": "Python asyncio tutorial", "provider": "tavily", "num_results": 2})
-    
+
     if os.getenv("BRAVE_API_KEY"):
         searches.append({"query": "Latest Python news", "provider": "brave", "num_results": 2, "days": 7})
-    
+
     if os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_SEARCH_ENGINE_ID"):
         searches.append({"query": "Python best practices", "provider": "google", "num_results": 2})
 
@@ -310,9 +359,13 @@ async def example_multiple_queries(providers_to_test: list[str] | None = None):
         print("\nSkipping: No API keys set in .env")
         return
 
+    if DRY_RUN:
+        dry_run_searches(searches, f"Executing {len(searches)} queries in a single API call")
+        return
+
     print(f"\nExecuting {len(searches)} queries in a single API call:")
     results = await real_web_search(searches)
-    
+
     for result in results:
         print_results(result)
 
@@ -329,9 +382,13 @@ async def example_error_handling():
     ]
     
     print(f"\nTesting unknown provider:")
-    results = await real_web_search(searches)
-    for result in results:
-        print_results(result)
+
+    if DRY_RUN:
+        dry_run_searches(searches)
+    else:
+        results = await real_web_search(searches)
+        for result in results:
+            print_results(result)
 
     # Test with missing query - should return error
     searches_missing_query = [
@@ -339,9 +396,13 @@ async def example_error_handling():
     ]
     
     print(f"\nTesting missing query field:")
-    results = await real_web_search(searches_missing_query)
-    for result in results:
-        print_results(result)
+
+    if DRY_RUN:
+        dry_run_searches(searches_missing_query)
+    else:
+        results = await real_web_search(searches_missing_query)
+        for result in results:
+            print_results(result)
 
 
 async def example_config_check():
@@ -373,6 +434,7 @@ async def main(providers: list[str] | None = None):
     }
     
     # If no providers specified (None or empty list), test all available ones
+    original_providers = providers.copy() if providers else []
     if not providers:
         providers = ["tavily", "brave", "google"]
     
@@ -420,11 +482,10 @@ async def main(providers: list[str] | None = None):
     if has_google:
         await example_google_ignores_days()
 
-    # Multiple queries and error handling examples - run if any provider selected
-    if providers_to_test:
+    # Run multiple queries example only when no provider args passed (demo mode)
+    if not original_providers:
         await example_multiple_queries()
-        await example_error_handling()
-    
+
     await example_config_check()
 
     print("\n" + "#" * 60)
@@ -453,10 +514,17 @@ Examples:
         metavar="PROVIDER",
         help="Provider names to test: miklium, tavily, brave, google (default: all). Unknown providers are skipped with a warning."
     )
-    
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be executed without making API calls"
+    )
+
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    DRY_RUN = args.dry_run
     asyncio.run(main(providers=args.providers))
