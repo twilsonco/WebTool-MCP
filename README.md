@@ -49,18 +49,18 @@ Fetch URLs and generate AI-powered summaries using a configured LLM endpoint.
 ## Installation
 
 1. Clone the repository:
-   ```bash
+```bash
 git clone <repository-url>
 cd WebTool-MCP
 ```
 
 2. Install dependencies using uv:
-   ```bash
+```bash
 uv sync
 ```
 
 3. Create your environment configuration:
-   ```bash
+```bash
 cp .env.example .env
 ```
 
