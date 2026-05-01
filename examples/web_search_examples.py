@@ -4,7 +4,7 @@ web_search examples - Demonstrates usage of the web_search MCP tool.
 This script imports and calls the actual implementation directly.
 Loads API keys from .env in project root.
 
-The new multi-query API accepts a list of search specifications:
+The multi-query API accepts a list of search specifications:
     searches = [
         {"query": "...", "provider": "tavily", "num_results": 5},
         {"query": "...", "provider": "brave", "num_results": 3, "days": 90},
@@ -64,64 +64,64 @@ def print_results(result: dict):
 
 
 async def example_tavily():
-    """Example 1: Tavily search with new multi-query API."""
+    """Example 1: Tavily search"""
     print("\n" + "=" * 60)
-    print("EXAMPLE 1: Tavily Search (new multi-query format)")
+    print("EXAMPLE 1: Tavily Search")
     print("=" * 60)
 
     if not os.getenv("TAVILY_API_KEY"):
         print("\nSkipping: TAVILY_API_KEY not set in .env")
         return
 
-    # New API: pass a list of search specifications
+    # API: pass a list of search specifications
     searches = [
         {"query": "Python asyncio tutorial", "provider": "tavily", "num_results": 3}
     ]
     results = await real_web_search(searches)
     
-    print(f"\nSearching with Tavily Search (new API format)")
+    print(f"\nSearching with Tavily Search")
     for result in results:
         print_results(result)
 
 
 async def example_brave():
-    """Example 2: Brave Search API with new multi-query API."""
+    """Example 2: Brave Search API."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 2: Brave Search (new multi-query format)")
+    print("EXAMPLE 2: Brave Search")
     print("=" * 60)
 
     if not os.getenv("BRAVE_API_KEY"):
         print("\nSkipping: BRAVE_API_KEY not set in .env")
         return
 
-    # New API: pass a list of search specifications
+    # API: pass a list of search specifications
     searches = [
         {"query": "Python asyncio tutorial", "provider": "brave", "num_results": 5}
     ]
     results = await real_web_search(searches)
     
-    print(f"\nSearching with Brave Search (new API format)")
+    print(f"\nSearching with Brave Search")
     for result in results:
         print_results(result)
 
 
 async def example_google():
-    """Example 3: Google Custom Search JSON API with new multi-query API."""
+    """Example 3: Google Custom Search JSON API."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 3: Google Custom Search (new multi-query format)")
+    print("EXAMPLE 3: Google Custom Search")
     print("=" * 60)
 
     if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_SEARCH_ENGINE_ID"):
         print("\nSkipping: GOOGLE_API_KEY and/or GOOGLE_SEARCH_ENGINE_ID not set in .env")
         return
 
-    # New API: pass a list of search specifications
+    # API: pass a list of search specifications
     searches = [
         {"query": "Python asyncio tutorial", "provider": "google", "num_results": 5}
     ]
     results = await real_web_search(searches)
     
-    print(f"\nSearching with Google Custom Search (new API format)")
+    print(f"\nSearching with Google Custom Search")
     for result in results:
         print_results(result)
 
@@ -136,8 +136,10 @@ async def example_date_filtering():
     - days=365: Last 365 days (Brave uses 'py')
     - days=0 or omitted: No date filtering
     """
+    num_days = 730  # Last 2 years
     print("\n" + "=" * 60)
     print("EXAMPLE 4: Date Filtering with 'days' parameter")
+    print(f"Filtering results to the last {num_days} days (if supported by provider)")
     print("=" * 60)
 
     # Check which providers are available for date filtering demo
@@ -156,7 +158,7 @@ async def example_date_filtering():
             "query": "Python asyncio tutorial",
             "provider": "tavily",
             "num_results": 3,
-            "days": 730  # Last 2 years - Tavily computes start_date internally
+            "days": num_days  # Last 2 years - Tavily computes start_date internally
         })
     
     if has_brave:
@@ -164,7 +166,7 @@ async def example_date_filtering():
             "query": "Python asyncio tutorial",
             "provider": "brave",
             "num_results": 3,
-            "days": 730  # Last 2 years - Brave uses 'py' freshness code
+            "days": num_days  # Last 2 years - Brave uses 'py' freshness code
         })
 
     print(f"\nSearching with date filters (using 'days' parameter):")
@@ -354,7 +356,7 @@ async def example_config_check():
 
 async def main():
     print("\n" + "#" * 60)
-    print("# web_search Examples (using new multi-query API with 'days' parameter)")
+    print("# web_search Examples (using multi-query API with 'days' parameter)")
     print("#" * 60)
 
     await example_tavily()
