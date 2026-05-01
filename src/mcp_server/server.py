@@ -39,6 +39,11 @@ async def web_fetch(
                 resp.raise_for_status()
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 
+                # Handle include_links option - strip href attributes when False
+                if not include_links:
+                    for a_tag in soup.find_all('a'):
+                        a_tag.unwrap()  # Remove anchor tags but keep text content
+                
                 # Basic conversion
                 content = md(str(soup))
                 
