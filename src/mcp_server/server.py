@@ -21,73 +21,94 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
 
-@mcp.tool()
-async def web_fetch(
-    urls: list[str], 
-    include_links: bool = False, 
-    start_word: int = 0, 
-    num_words: int = 1000, 
-    regex: str = None, 
-    regex_padding: int = 50
-) -> dict:
-    """Fetch URLs, convert to markdown, and optionally filter via regex."""
-    results = {}
-    async with httpx.AsyncClient(follow_redirects=True, headers=DEFAULT_HEADERS) as client:
-        for url in urls:
-            try:
-                resp = await client.get(url, timeout=10.0)
-                resp.raise_for_status()
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                
-                # Handle include_links option - strip href attributes when False
-                if not include_links:
-                    for a_tag in soup.find_all('a'):
-                        a_tag.unwrap()  # Remove anchor tags but keep text content
-                
-                # Basic conversion
-                content = md(str(soup))
-                
-                # Apply Regex filtering/padding if provided
-                if regex:
-                    pattern = re.compile(regex)
-                    matches = list(pattern.finditer(content))
-                    if matches:
-                        filtered = []
-                        for m in matches:
-                            start = max(0, m.start() - regex_padding)
-                            end = min(len(content), m.end() + regex_padding)
-                            filtered.append(content[start:end])
-                        content = "\n---\n".join(filtered)
-                    else:
-                        content = "No matches found for regex."
 
-                # Word truncation
-                words = content.split()
-                results[url] = " ".join(words[start_word : start_word + num_words])
-            except Exception as e:
-                results[url] = f"Error fetching {url}: {str(e)}"
-    return results
+def _get_configured_providers() -> list[str]:
+    """
+    Return a list of configured search providers in priority order.
+    Only includes providers that have all required environment variables set.
+    """
+    providers = []
+    
+    # Check Tavily (priority 1)
+    if os.getenv("TAVILY_API_KEY"):
+        providers.append("tavily")
+    
+    # Check Brave (priority 2)
+    if os.getenv("BRAVE_API_KEY"):
+        providers.append("brave")
+    
+    # Check Google (priority 3) - requires both API key and search engine ID
+    if os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_SEARCH_ENGINE_ID"):
+        providers.append("google")
+    
+    return providers
+
+
+def _generate_search_schema() -> dict:
+    """
+    Generate the dynamic schema for web_search tool based on configured providers.
+    Only includes provider enum values that are actually configured.
+    """
+    configured = _get_configured_providers()
+    
+    # Default to tavily if no providers configured
+    default_provider = configured[0] if configured else "tavily"
+    
+    return {
+        "searches": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "provider": {
+                        "type": "string",
+                        "enum": configured if configured else ["tavily"],
+                        "default": default_provider
+                    },
+                    "num_results": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10},
+                    "days": {"type": "integer", "minimum": 0, "default": 0},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0}
+                },
+                "required": ["query"]
+            }
+        }
+    }
+
+
+# Note: FastMCP derives input schema from type hints.
+# Provider enum values are determined at module load time via _get_configured_providers().
+# Runtime validation + failover ensures invalid providers fail over to configured ones.
+
+AVAILABLE_PROVIDERS = _get_configured_providers()
+
 
 @mcp.tool()
 async def web_search(searches: list[dict]) -> list[dict]:
     """
-    Execute one or more web searches using Brave, Google, or Tavily.
+    Execute one or more web searches using configured providers with automatic failover.
+
+    When a provider fails (not configured or API error), automatically tries the next
+    available configured provider. Priority order: tavily > brave > google.
 
     Args:
         searches: List of search specifications. Each dict supports:
             - query (str): The search query string (required)
-            - provider (str): Which provider to use: "brave", "google", "tavily" (default: "tavily")
-            - num_results (int): Number of results to return (default: 10, max varies by provider)
+            - provider (str): Preferred provider to use: "tavily", "brave", or "google"
+                            Only configured providers are valid. If not specified, uses
+                            the first available provider with failover support.
+            - num_results (int): Number of results to return (default: 10, max: 20)
             - days (int): Filter results to the last N days. 0 means no date filtering.
                          Only supported for brave/tavily; ignored for google.
             - offset (int): Starting index for pagination. Only supported for brave/google;
-                           tavily does not support offsets (use multiple searches instead).
+                           tavily does not support offsets.
 
     Returns:
         List of results, one per search spec:
-        [{"query": "...", "provider": "...", "results": [{"title": "...", "url": "...", "snippet": "..."}, ...]}, ...]
-        Errors are included inline: {"query": "...", "error": "...", "provider": "..."}
+        [{"query": "...", "provider": "...", "results": [...], "failover_attempts": [...]}, ...]
+        Errors are included inline: {"query": "...", "error": "...", "provider": "...", "failover_attempts": [...]}
     """
+    configured_providers = _get_configured_providers()
     results = []
 
     for search_spec in searches:
@@ -96,36 +117,78 @@ async def web_search(searches: list[dict]) -> list[dict]:
             results.append({"error": "Missing required field: query"})
             continue
 
-        provider = search_spec.get("provider", "tavily")
+        preferred_provider = search_spec.get("provider")
         num_results = min(search_spec.get("num_results", 10), 20)
         days = search_spec.get("days", 0) or 0
         offset = search_spec.get("offset") or 0
 
-        if provider == "tavily":
-            result = await _search_tavily(query, num_results, days=days)
-        elif provider == "brave":
-            result = await _search_brave(query, num_results, days=days, offset=offset)
-        elif provider == "google":
-            result = await _search_google(query, num_results, offset=offset)
+        # Determine provider order: preferred first, then failover chain
+        if preferred_provider and preferred_provider in configured_providers:
+            # Use preferred as first, then rest of configured providers (excluding preferred)
+            provider_order = [preferred_provider] + [
+                p for p in configured_providers if p != preferred_provider
+            ]
+        elif configured_providers:
+            # No valid preferred specified, use all configured in priority order
+            provider_order = configured_providers[:]
         else:
-            results.append({"query": query, "provider": provider, "error": f"Unknown provider: {provider}"})
+            results.append({
+                "query": query,
+                "provider": preferred_provider or "tavily",
+                "error": "No search providers configured. Set TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY+GOOGLE_SEARCH_ENGINE_ID in .env"
+            })
             continue
 
-        # Normalize to flat format with snippet field name
-        if "error" in result:
-            results.append({"query": query, "provider": provider, **result})
-        else:
+        # Try each provider in order until one succeeds
+        failover_attempts = []
+        final_result = None
+        final_provider = None
+
+        for provider in provider_order:
+            if provider == "tavily":
+                result = await _search_tavily(query, num_results, days=days)
+            elif provider == "brave":
+                result = await _search_brave(query, num_results, days=days, offset=offset)
+            elif provider == "google":
+                result = await _search_google(query, num_results, offset=offset)
+            else:
+                continue
+
+            # Record this attempt
+            if "error" in result:
+                failover_attempts.append({"provider": provider, "error": result["error"]})
+            else:
+                # Success!
+                final_result = result
+                final_provider = provider
+                break
+
+        # Build response
+        if final_result is not None:
             normalized = {
                 "query": query,
-                "provider": provider,
+                "provider": final_provider,
                 "results": [
                     {"title": r.get("title", ""), "url": r["url"], "snippet": r.get("description", "")}
-                    for r in result.get("results", [])
+                    for r in final_result.get("results", [])
                 ]
             }
+            if failover_attempts:
+                normalized["failover_attempts"] = failover_attempts
             results.append(normalized)
+        else:
+            # All providers failed
+            error_response = {
+                "query": query,
+                "provider": provider_order[0] if provider_order else preferred_provider or "tavily",
+                "error": f"All search providers failed. Last error: {failover_attempts[-1]['error'] if failover_attempts else 'Unknown'}"
+            }
+            if failover_attempts:
+                error_response["failover_attempts"] = failover_attempts
+            results.append(error_response)
 
     return results
+
 
 async def _search_tavily(query: str, num_results: int, days: int = 0) -> dict:
     api_key = os.getenv("TAVILY_API_KEY")
@@ -156,6 +219,7 @@ async def _search_tavily(query: str, num_results: int, days: int = 0) -> dict:
         return {"count": len(results), "results": results}
     except Exception as e:
         return {"error": f"Tavily search failed: {str(e)}"}
+
 
 def _brave_freshness(days: int = 0) -> str:
     """Convert days to Brave freshness period parameter."""
@@ -205,6 +269,7 @@ async def _search_brave(query: str, num_results: int, days: int = 0, offset: int
     except Exception as e:
         return {"error": f"Brave search failed: {str(e)}"}
 
+
 async def _search_google(query: str, num_results: int, offset: int = 0) -> dict:
     api_key = os.getenv("GOOGLE_API_KEY")
     cx = os.getenv("GOOGLE_SEARCH_ENGINE_ID")
@@ -232,6 +297,7 @@ async def _search_google(query: str, num_results: int, offset: int = 0) -> dict:
     except Exception as e:
         return {"error": f"Google search failed: {str(e)}"}
 
+
 async def _call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
     """
     Call the configured LLM endpoint(s) with failover support.
@@ -242,6 +308,7 @@ async def _call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
         return await llm_manager.complete(prompt, system_prompt)
     except LLMAllProvidersFailedError as e:
         raise RuntimeError(str(e))
+
 
 DEFAULT_SUMMARY_PROMPT = """
 You are a technical summarizer. Analyze the provided web content and produce a concise, well-structured markdown summary.
@@ -321,6 +388,53 @@ async def web_summarize(
                 result["combined"] = {"error": str(e)}
 
     return result
+
+@mcp.tool()
+async def web_fetch(
+    urls: list[str], 
+    include_links: bool = False, 
+    start_word: int = 0, 
+    num_words: int = 1000, 
+    regex: str = None, 
+    regex_padding: int = 50
+) -> dict:
+    """Fetch URLs, convert to markdown, and optionally filter via regex."""
+    results = {}
+    async with httpx.AsyncClient(follow_redirects=True, headers=DEFAULT_HEADERS) as client:
+        for url in urls:
+            try:
+                resp = await client.get(url, timeout=10.0)
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                
+                # Handle include_links option - strip href attributes when False
+                if not include_links:
+                    for a_tag in soup.find_all('a'):
+                        a_tag.unwrap()  # Remove anchor tags but keep text content
+                
+                # Basic conversion
+                content = md(str(soup))
+                
+                # Apply Regex filtering/padding if provided
+                if regex:
+                    pattern = re.compile(regex)
+                    matches = list(pattern.finditer(content))
+                    if matches:
+                        filtered = []
+                        for m in matches:
+                            start = max(0, m.start() - regex_padding)
+                            end = min(len(content), m.end() + regex_padding)
+                            filtered.append(content[start:end])
+                        content = "\n---\n".join(filtered)
+                    else:
+                        content = "No matches found for regex."
+
+                # Word truncation
+                words = content.split()
+                results[url] = " ".join(words[start_word : start_word + num_words])
+            except Exception as e:
+                results[url] = f"Error fetching {url}: {str(e)}"
+    return results
 
 if __name__ == "__main__":
     mcp.run()
