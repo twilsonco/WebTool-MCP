@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 from datetime import datetime, timedelta
@@ -26,18 +27,22 @@ def _get_configured_providers() -> list[str]:
     """
     Return a list of configured search providers in priority order.
     Only includes providers that have all required environment variables set.
+    MIKLIUM is always available (no API key required).
     """
     providers = []
     
-    # Check Tavily (priority 1)
+    # MIKLIUM (priority 1) - no API key required, free API
+    providers.append("miklium")
+    
+    # Check Tavily (priority 2)
     if os.getenv("TAVILY_API_KEY"):
         providers.append("tavily")
     
-    # Check Brave (priority 2)
+    # Check Brave (priority 3)
     if os.getenv("BRAVE_API_KEY"):
         providers.append("brave")
     
-    # Check Google (priority 3) - requires both API key and search engine ID
+    # Check Google (priority 4) - requires both API key and search engine ID
     if os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_SEARCH_ENGINE_ID"):
         providers.append("google")
     
@@ -48,11 +53,12 @@ def _generate_search_schema() -> dict:
     """
     Generate the dynamic schema for web_search tool based on configured providers.
     Only includes provider enum values that are actually configured.
+    MIKLIUM is always available as default since it requires no API key.
     """
     configured = _get_configured_providers()
     
-    # Default to tavily if no providers configured
-    default_provider = configured[0] if configured else "tavily"
+    # Default to miklium (always available) if no providers configured
+    default_provider = configured[0] if configured else "miklium"
     
     return {
         "searches": {
@@ -110,12 +116,60 @@ async def web_search(searches: list[dict]) -> list[dict]:
     """
     configured_providers = _get_configured_providers()
     results = []
-
-    for search_spec in searches:
+    
+    # Separate miklium searches from others (for batching)
+    miklium_searches = []
+    other_searches = []
+    
+    for idx, search_spec in enumerate(searches):
         query = search_spec.get("query", "")
         if not query:
+            continue  # Will handle below
+        preferred = search_spec.get("provider")
+        if preferred == "miklium" or (not preferred and configured_providers and configured_providers[0] == "miklium"):
+            miklium_searches.append((idx, search_spec))
+        else:
+            other_searches.append((idx, search_spec))
+    
+    # Handle empty queries
+    for idx, search_spec in enumerate(searches):
+        if not search_spec.get("query", ""):
             results.append({"error": "Missing required field: query"})
-            continue
+    
+    # Batch all miklium queries into a single call
+    if miklium_searches:
+        miklium_queries = [s[1].get("query", "") for s in miklium_searches]
+        num_results = min(miklium_searches[0][1].get("num_results", 10), 20) if miklium_searches else 10
+        
+        # Call miklium with batched queries
+        miklium_result = await _search_miklium(miklium_queries, num_results)
+        
+        if "error" in miklium_result:
+            # All miklium searches failed
+            for idx, search_spec in miklium_searches:
+                results.append({
+                    "query": search_spec.get("query", ""),
+                    "provider": "miklium",
+                    "error": miklium_result["error"]
+                })
+        else:
+            # Distribute combined results to each miklium search
+            for idx, search_spec in miklium_searches:
+                normalized = {
+                    "query": search_spec.get("query", ""),
+                    "provider": "miklium",
+                    "results": [
+                        {"title": r.get("title", ""), "url": r["url"], "snippet": r.get("description", "")}
+                        for r in miklium_result.get("results", [])
+                    ]
+                }
+                results.append(normalized)
+    
+    # Process non-miklium searches individually
+    for idx, search_spec in other_searches:
+        query = search_spec.get("query", "")
+        if not query:
+            continue  # Already handled above
 
         preferred_provider = search_spec.get("provider")
         num_results = min(search_spec.get("num_results", 10), 20)
@@ -139,13 +193,15 @@ async def web_search(searches: list[dict]) -> list[dict]:
             })
             continue
 
-        # Try each provider in order until one succeeds
+        # Try each provider in order until one succeeds (skip miklium since already handled)
         failover_attempts = []
         final_result = None
         final_provider = None
 
         for provider in provider_order:
-            if provider == "tavily":
+            if provider == "miklium":
+                continue  # Already processed above
+            elif provider == "tavily":
                 result = await _search_tavily(query, num_results, days=days)
             elif provider == "brave":
                 result = await _search_brave(query, num_results, days=days, offset=offset)
@@ -296,6 +352,91 @@ async def _search_google(query: str, num_results: int, offset: int = 0) -> dict:
         return {"count": len(results), "results": results}
     except Exception as e:
         return {"error": f"Google search failed: {str(e)}"}
+
+
+async def _search_miklium(queries: list[str], num_results: int) -> dict:
+    """
+    Search using the MIKLIUM API (free, no API key required).
+    
+    Batches multiple queries into single API requests. The MIKLIUM API accepts
+    maximum 3 searches per request in the "search" array parameter.
+    
+    Args:
+        queries: List of search query strings
+        num_results: Number of results to return per query
+    
+    Returns:
+        Dict with "count" (total across all queries) and "results" on success,
+        or {"error": "..."} on failure.
+    """
+    if not queries:
+        return {"count": 0, "results": []}
+    
+    # Calculate snippet counts based on num_results
+    # Use more small snippets (short type) as they're typically more numerous
+    max_small = min(num_results, 5)
+    max_large = min(max(1, num_results // 3), 2)
+    
+    async def _search_batch(batch: list[str]) -> dict:
+        """Execute a single batch of queries against the MIKLIUM API."""
+        payload = {
+            "search": batch,
+            "maxSmallSnippets": max_small,
+            "maxLargeSnippets": max_large
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    "https://miklium.vercel.app/api/search",
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            
+            if not data.get("success", False):
+                return {"error": f"MIKLIUM search failed: {data.get('error', 'Unknown error')}"}
+            
+            results = []
+            for r in data.get("results", [])[:num_results * len(batch)]:
+                snippet = r.get("snippet", "")
+                # MIKLIUM doesn't provide separate title, use snippet as title
+                # Truncate to reasonable length for consistency with other providers
+                results.append({
+                    "title": snippet[:100] if snippet else "",
+                    "url": r.get("url", ""),
+                    "description": snippet[:200] if snippet else ""
+                })
+            
+            return {"count": len(results), "results": results}
+        except Exception as e:
+            return {"error": f"MIKLIUM search failed: {str(e)}"}
+    
+    # Batch queries into groups of 3 (API maximum)
+    batch_size = 3
+    batches = [queries[i:i + batch_size] for i in range(0, len(queries), batch_size)]
+    
+    # Execute all batches in parallel using asyncio.gather()
+    batch_results = await asyncio.gather(*[_search_batch(batch) for batch in batches])
+    
+    # Combine results from all batches
+    combined_count = 0
+    combined_results = []
+    errors = []
+    
+    for result in batch_results:
+        if "error" in result:
+            errors.append(result["error"])
+        else:
+            combined_count += result.get("count", 0)
+            combined_results.extend(result.get("results", []))
+    
+    # If all batches failed, return the last error
+    if errors and not combined_results:
+        return {"error": f"MIKLIUM search failed: {errors[-1]}"}
+    
+    return {"count": combined_count, "results": combined_results}
 
 
 async def _call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:

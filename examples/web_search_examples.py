@@ -23,6 +23,7 @@ Each search dict supports:
     - offset (int): Starting index for pagination. Only supported for brave/google;
                    tavily does not support offsets.
 """
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -286,13 +287,14 @@ async def example_google_ignores_days():
         print_results(result)
 
 
-async def example_multiple_queries():
+async def example_multiple_queries(providers_to_test: list[str] | None = None):
     """Example 8: Execute multiple queries in a single API call."""
     print("\n" + "=" * 60)
     print("EXAMPLE 8: Multiple Queries (single API call)")
+    print(f"[DEBUG] providers_to_test = {providers_to_test}")
     print("=" * 60)
 
-    # Build list of searches based on available API keys
+    # Build list of searches based on REQUESTED providers, not available API keys
     searches = []
     
     if os.getenv("TAVILY_API_KEY"):
@@ -354,20 +356,75 @@ async def example_config_check():
         print(f"  {key}: {status}")
 
 
-async def main():
+async def main(providers: list[str] | None = None):
+    """
+    Run web search examples.
+    
+    Args:
+        providers: Optional list of provider names to test. If None or empty, all available
+                   providers are tested. Valid values: miklium, tavily, brave, google.
+    """
+    # Define which providers map to which example functions
+    provider_examples = {
+        "tavily": [example_tavily],
+        "brave": [example_brave],
+        "google": [example_google],
+        "miklium": [],  # miklium examples would go here if added
+    }
+    
+    # If no providers specified (None or empty list), test all available ones
+    if not providers:
+        providers = ["tavily", "brave", "google"]
+    
+    # Validate and filter provider names
+    valid_providers = set(provider_examples.keys())
+    requested_providers = set(providers)
+    invalid_providers = requested_providers - valid_providers
+    
+    if invalid_providers:
+        print(f"Warning: Unknown provider(s) skipped: {', '.join(sorted(invalid_providers))}")
+        print(f"Valid providers: {', '.join(sorted(valid_providers))}")
+    
+    # Filter to only valid and requested providers
+    providers_to_test = [p for p in providers if p in valid_providers]
+    
+    if not providers_to_test:
+        print("No valid providers specified. Use --help for usage information.")
+        return
+
     print("\n" + "#" * 60)
-    print("# web_search Examples (using multi-query API with 'days' parameter)")
+    print(f"# web_search Examples (providers: {', '.join(providers_to_test)})")
     print("#" * 60)
 
-    await example_tavily()
-    await example_brave()
-    await example_google()
-    await example_date_filtering()
-    await example_date_filtering_options()
-    await example_offset_pagination()
-    await example_google_ignores_days()
-    await example_multiple_queries()
-    await example_error_handling()
+    # Run examples based on selected providers
+    for provider in providers_to_test:
+        if provider == "tavily":
+            await example_tavily()
+        elif provider == "brave":
+            await example_brave()
+        elif provider == "google":
+            await example_google()
+
+    # These examples work with multiple providers, run if any relevant provider is selected
+    has_tavily_or_brave = "tavily" in providers_to_test or "brave" in providers_to_test
+    has_brave = "brave" in providers_to_test
+    has_google = "google" in providers_to_test
+    
+    if has_tavily_or_brave:
+        await example_date_filtering()
+    
+    if has_brave:
+        await example_date_filtering_options()
+        await example_offset_pagination()
+    
+    if has_google:
+        await example_google_ignores_days()
+
+    # Multiple queries and error handling examples - run if any provider selected
+    if providers_to_test:
+        await example_multiple_queries()
+        await example_error_handling()
+    
     await example_config_check()
 
     print("\n" + "#" * 60)
@@ -375,5 +432,31 @@ async def main():
     print("#" * 60)
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Web search examples demonstrating various providers and features.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                  Run all provider examples
+  %(prog)s tavily           Run only Tavily examples
+  %(prog)s google brave     Run Google and Brave examples
+  %(prog)s miklium tavily   Run Miklium (if exists) and Tavily, skip invalid
+        """
+    )
+    
+    parser.add_argument(
+        "providers",
+        nargs="*",
+        default=None,
+        metavar="PROVIDER",
+        help="Provider names to test: miklium, tavily, brave, google (default: all). Unknown providers are skipped with a warning."
+    )
+    
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    args = parse_args()
+    asyncio.run(main(providers=args.providers))
