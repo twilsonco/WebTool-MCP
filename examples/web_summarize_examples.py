@@ -3,7 +3,7 @@
 web_summarize examples - Demonstrates usage of the web_summarize MCP tool.
 This script imports and calls the actual implementations directly.
 Loads API keys from .env in project root.
-Requires OPENAI_COMPATIBLE_BASE_URL (e.g., OpenWebUI or Ollama).
+Requires LLM_PROVIDER_1_* variables to be configured (multi-provider support).
 """
 import os
 import sys
@@ -19,7 +19,6 @@ load_dotenv(project_root / ".env")
 
 # Import the actual implementations from server.py
 from src.mcp_server.server import web_summarize as real_web_summarize
-from src.mcp_server.server import BASE_URL, MODEL_NAME
 
 
 async def example_single_url():
@@ -28,7 +27,7 @@ async def example_single_url():
     print("EXAMPLE 1: Single URL Summary")
     print("=" * 60)
 
-    urls = ["https://example.com"]
+    urls = ["https://blog.comma.ai/011release/"]
 
     print(f"\nSummarizing {urls[0]}...")
     result = await real_web_summarize(urls, max_words_per_url=500)
@@ -147,32 +146,113 @@ async def example_config_check():
     print("EXAMPLE 5: LLM Configuration Status")
     print("=" * 60)
 
-    print(f"\nLLM Endpoint: {BASE_URL}")
-    print(f"Model Name:   {MODEL_NAME}")
-    print(f"API Key Set:  {'Yes' if os.getenv('OPENAI_API_KEY') else 'No (local endpoint assumed)'}")
-
-    # Quick connectivity check
-    import httpx
+    from src.mcp_server.llm import LLMManager
+    
     try:
-        base = BASE_URL.rsplit('/', 1)[0]
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{base}/models")
-            if resp.is_success:
-                print("Connection:   OK - LLM endpoint reachable")
-            else:
-                print(f"Connection:   Warning - status {resp.status_code}")
+        manager = LLMManager()
+        providers = manager.providers
+        
+        if providers:
+            provider = providers[0]  # Primary provider
+            print(f"\nLLM Provider: {provider.name}")
+            print(f"Base URL:     {provider.config.base_url}")
+            print(f"Model:        {provider.config.model}")
+            print(f"API Key Set:  {'Yes' if provider.config.api_key else 'No'}")
+        else:
+            print("\nNo LLM providers configured.")
     except Exception as e:
-        print(f"Connection:   Error - cannot reach endpoint ({e})")
+        print(f"Error checking configuration: {e}")
+
+
+async def example_multi_provider_failover():
+    """
+    Example 6: Multi-provider LLM failover demonstration.
+    
+    This example shows how to configure multiple LLM providers with automatic
+    failover. When the first provider fails, the system automatically tries
+    the next provider in sequence.
+    
+    Configuration via environment variables:
+        # Provider 1 (Primary - highest priority)
+        LLM_PROVIDER_1_NAME=primary-ollama
+        LLM_PROVIDER_1_BASE_URL=http://localhost:11434/v1
+        LLM_PROVIDER_1_API_KEY=
+        LLM_PROVIDER_1_MODEL=llama3.2
+        
+        # Provider 2 (Fallback)
+        LLM_PROVIDER_2_NAME=secondary-ollama
+        LLM_PROVIDER_2_BASE_URL=http://192.168.1.100:11434/v1
+        LLM_PROVIDER_2_API_KEY=
+        LLM_PROVIDER_2_MODEL=mistral
+        
+        # Provider 3 (Last resort - could be cloud API like OpenRouter)
+        LLM_PROVIDER_3_NAME=cloud-backup
+        LLM_PROVIDER_3_BASE_URL=https://openrouter.ai/api/v1
+        LLM_PROVIDER_3_API_KEY=sk-or-v1-...
+        LLM_PROVIDER_3_MODEL=anthropic/claude-3-haiku
+    
+    How failover works:
+        1. The system tries provider 1 (primary)
+        2. If it fails (connection error, API error, timeout), it logs the error
+           and moves to provider 2
+        3. This continues through all configured providers
+        4. If ALL providers fail, LLMAllProvidersFailedError is raised with
+           details about what went wrong with each
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 6: Multi-Provider Failover Configuration")
+    print("=" * 60)
+
+    # Import the LLM manager to check provider configuration
+    from src.mcp_server.llm import LLMManager, LLMAllProvidersFailedError
+
+    try:
+        manager = LLMManager()
+        providers = manager.providers
+
+        print(f"\nConfigured {len(providers)} LLM provider(s):")
+        for i, provider in enumerate(providers, 1):
+            print(f"\n  Provider {i}: {provider.name}")
+            print(f"    URL:   {provider.config.base_url}")
+            print(f"    Model: {provider.config.model}")
+            has_key = "Yes" if provider.config.api_key else "No"
+            print(f"    API Key: {has_key}")
+
+        # Demonstrate failover behavior with a test prompt
+        print("\n" + "-" * 40)
+        print("Testing LLM completion (with potential failover)...")
+        
+        try:
+            result = await manager.complete(
+                "Say 'Hello' if you receive this.",
+                system_prompt="You are a helpful assistant. Keep responses very brief."
+            )
+            print(f"\nSuccess! Response: {result[:100]}...")
+        except LLMAllProvidersFailedError as e:
+            print(f"\nAll providers failed:\n  {e}")
+
+    except Exception as e:
+        print(f"Error initializing LLM manager: {e}")
 
 
 async def main():
+    from src.mcp_server.llm import LLMManager
+    
     print("\n" + "#" * 60)
     print("# web_summarize Examples (using real implementation)")
-    print(f"# LLM Endpoint: {BASE_URL}")
-    print(f"# Model: {MODEL_NAME}")
+    try:
+        manager = LLMManager()
+        if manager.providers:
+            p = manager.providers[0]
+            print(f"# LLM Provider: {p.name}")
+            print(f"# Model: {p.config.model}")
+    except Exception:
+        print("# LLM Provider: Not configured")
     print("#" * 60)
 
     await example_config_check()
+    # Uncomment to test multi-provider failover:
+    # await example_multi_provider_failover()
     await example_single_url()
 
     # These take longer due to multiple LLM calls - uncomment as needed:

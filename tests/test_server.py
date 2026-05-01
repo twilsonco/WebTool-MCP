@@ -481,3 +481,506 @@ class TestCallLLM:
                 await _call_llm("Test prompt")
 
             assert "inference failed" in str(exc_info.value).lower()
+
+
+class TestLLMProviderConfig:
+    """Tests for LLMProviderConfig dataclass."""
+
+    def test_config_creation(self):
+        """Test that LLMProviderConfig can be created with all fields."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+
+        config = LLMProviderConfig(
+            name="test-provider",
+            base_url="http://localhost:11434/v1",
+            api_key="secret-key",
+            model="llama3.2"
+        )
+
+        assert config.name == "test-provider"
+        assert config.base_url == "http://localhost:11434/v1"
+        assert config.api_key == "secret-key"
+        assert config.model == "llama3.2"
+
+    def test_config_immutable(self):
+        """Test that LLMProviderConfig is immutable (frozen dataclass)."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+
+        config = LLMProviderConfig(
+            name="test",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            model="model"
+        )
+
+        with pytest.raises(AttributeError):
+            config.name = "new-name"
+
+    def test_config_equality(self):
+        """Test that two configs with same values are equal."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+
+        config1 = LLMProviderConfig(
+            name="test", base_url="http://localhost:11434/v1",
+            api_key="", model="llama3.2"
+        )
+        config2 = LLMProviderConfig(
+            name="test", base_url="http://localhost:11434/v1",
+            api_key="", model="llama3.2"
+        )
+
+        assert config1 == config2
+
+
+class TestOpenAICompatibleProvider:
+    """Tests for OpenAICompatibleProvider."""
+
+    @pytest.mark.asyncio
+    async def test_complete_success(self):
+        """Test successful completion request."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+        from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+
+        config = LLMProviderConfig(
+            name="test",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            model="llama3.2"
+        )
+        provider = OpenAICompatibleProvider(config)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "Test response"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.mcp_server.llm.openai_compatible.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.post.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value = instance
+
+            result = await provider.complete("Test prompt", "System prompt")
+
+            assert result == "Test response"
+            # Verify the request was made with correct structure
+            call_args = instance.post.call_args
+            json_data = call_args.kwargs["json"]
+            assert json_data["model"] == "llama3.2"
+            assert len(json_data["messages"]) == 2
+            assert json_data["messages"][0]["role"] == "system"
+            assert json_data["messages"][1]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_complete_no_system_prompt(self):
+        """Test completion without system prompt."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+        from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+
+        config = LLMProviderConfig(
+            name="test",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            model="llama3.2"
+        )
+        provider = OpenAICompatibleProvider(config)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "Response"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.mcp_server.llm.openai_compatible.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.post.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value = instance
+
+            result = await provider.complete("User prompt")
+
+            assert result == "Response"
+            call_args = instance.post.call_args
+            json_data = call_args.kwargs["json"]
+            # Should only have user message, no system
+            assert len(json_data["messages"]) == 1
+            assert json_data["messages"][0]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_complete_http_error(self):
+        """Test that HTTP errors raise LLMProviderError."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+        from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+        from httpx import HTTPStatusError, Request
+
+        config = LLMProviderConfig(
+            name="test-provider",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            model="llama3.2"
+        )
+        provider = OpenAICompatibleProvider(config)
+
+        mock_response = MagicMock()
+        request = Request("POST", "http://localhost:11434/v1/chat/completions")
+        mock_response.raise_for_status.side_effect = HTTPStatusError(
+            "Server error", request=request, response=MagicMock(status_code=500)
+        )
+
+        with patch("src.mcp_server.llm.openai_compatible.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.post.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with pytest.raises(Exception) as exc_info:
+                await provider.complete("Test prompt")
+
+            assert "500" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_is_available_success(self):
+        """Test is_available returns True on successful health check."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+        from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+
+        config = LLMProviderConfig(
+            name="test",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            model="llama3.2"
+        )
+        provider = OpenAICompatibleProvider(config)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch("src.mcp_server.llm.openai_compatible.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.get.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value = instance
+
+            result = await provider.is_available()
+
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_is_available_failure(self):
+        """Test is_available returns False when endpoint unreachable."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+        from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+
+        config = LLMProviderConfig(
+            name="test",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            model="llama3.2"
+        )
+        provider = OpenAICompatibleProvider(config)
+
+        with patch("src.mcp_server.llm.openai_compatible.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            # Both /models and chat/completions fail
+            instance.get.side_effect = Exception("Connection refused")
+            instance.post.side_effect = Exception("Connection refused")
+            mock_client.return_value.__aenter__.return_value = instance
+
+            result = await provider.is_available()
+
+            assert result is False
+
+    def test_provider_name_property(self):
+        """Test that name property returns config name."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+        from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+
+        config = LLMProviderConfig(
+            name="my-ollama",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            model="llama3.2"
+        )
+        provider = OpenAICompatibleProvider(config)
+
+        assert provider.name == "my-ollama"
+        assert provider.config == config
+
+    def test_headers_with_api_key(self):
+        """Test that Authorization header is set when api_key provided."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+        from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+
+        config = LLMProviderConfig(
+            name="test",
+            base_url="http://localhost:11434/v1",
+            api_key="my-secret-key",
+            model="model"
+        )
+        provider = OpenAICompatibleProvider(config)
+
+        headers = provider._headers()
+
+        assert "Authorization" in headers
+        assert headers["Authorization"] == "Bearer my-secret-key"
+
+    def test_headers_without_api_key(self):
+        """Test that no Authorization header when api_key is empty."""
+        from src.mcp_server.llm.base import LLMProviderConfig
+        from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+
+        config = LLMProviderConfig(
+            name="test",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            model="model"
+        )
+        provider = OpenAICompatibleProvider(config)
+
+        headers = provider._headers()
+
+        assert "Authorization" not in headers
+
+
+class TestLLMManager:
+    """Tests for LLMManager failover logic."""
+
+    @pytest.mark.asyncio
+    async def test_single_provider_success(self):
+        """Test that single provider works when it succeeds."""
+        from src.mcp_server.llm.manager import LLMManager
+        from src.mcp_server.llm.base import LLMProviderConfig, LLMProvider
+        from unittest.mock import AsyncMock
+
+        # Create a mock manager with mocked providers
+        manager = object.__new__(LLMManager)
+        
+        # Create mock provider that succeeds
+        mock_provider = MagicMock(spec=LLMProvider)
+        mock_provider.complete = AsyncMock(return_value="Success response")
+        mock_provider.name = "primary"
+        
+        manager._providers = [mock_provider]
+
+        result = await manager.complete("Test prompt", "System")
+
+        assert result == "Success response"
+        mock_provider.complete.assert_called_once_with("Test prompt", "System")
+
+    @pytest.mark.asyncio
+    async def test_failover_to_second_provider(self):
+        """Test that failover works when first provider fails."""
+        from src.mcp_server.llm.manager import LLMManager, LLMProviderError
+        from src.mcp_server.llm.base import LLMProvider
+        from unittest.mock import AsyncMock
+
+        manager = object.__new__(LLMManager)
+
+        # First provider fails, second succeeds
+        mock_provider1 = MagicMock(spec=LLMProvider)
+        mock_provider1.complete = AsyncMock(
+            side_effect=LLMProviderError("primary", "Connection refused")
+        )
+        mock_provider1.name = "primary"
+
+        mock_provider2 = MagicMock(spec=LLMProvider)
+        mock_provider2.complete = AsyncMock(return_value="Fallback response")
+        mock_provider2.name = "fallback"
+
+        manager._providers = [mock_provider1, mock_provider2]
+
+        result = await manager.complete("Test prompt")
+
+        assert result == "Fallback response"
+        # First provider should have been called
+        mock_provider1.complete.assert_called_once()
+        # Second provider should also have been called (failover worked)
+        mock_provider2.complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_failover_through_multiple_providers(self):
+        """Test failover through multiple providers."""
+        from src.mcp_server.llm.manager import LLMManager, LLMProviderError
+        from src.mcp_server.llm.base import LLMProvider
+        from unittest.mock import AsyncMock
+
+        manager = object.__new__(LLMManager)
+
+        # All providers fail except the last one
+        mock_provider1 = MagicMock(spec=LLMProvider)
+        mock_provider1.complete = AsyncMock(
+            side_effect=LLMProviderError("p1", "Failed")
+        )
+        mock_provider1.name = "p1"
+
+        mock_provider2 = MagicMock(spec=LLMProvider)
+        mock_provider2.complete = AsyncMock(
+            side_effect=LLMProviderError("p2", "Failed")
+        )
+        mock_provider2.name = "p2"
+
+        mock_provider3 = MagicMock(spec=LLMProvider)
+        mock_provider3.complete = AsyncMock(return_value="Third time's a charm")
+        mock_provider3.name = "p3"
+
+        manager._providers = [mock_provider1, mock_provider2, mock_provider3]
+
+        result = await manager.complete("Test prompt")
+
+        assert result == "Third time's a charm"
+        # All three should have been attempted
+        mock_provider1.complete.assert_called_once()
+        mock_provider2.complete.assert_called_once()
+        mock_provider3.complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_all_providers_fail(self):
+        """Test that LLMAllProvidersFailedError is raised when all fail."""
+        from src.mcp_server.llm.manager import LLMManager, LLMProviderError, LLMAllProvidersFailedError
+        from src.mcp_server.llm.base import LLMProvider
+        from unittest.mock import AsyncMock
+
+        manager = object.__new__(LLMManager)
+
+        mock_provider1 = MagicMock(spec=LLMProvider)
+        mock_provider1.complete = AsyncMock(
+            side_effect=LLMProviderError("p1", "Connection timeout")
+        )
+        mock_provider1.name = "p1"
+
+        mock_provider2 = MagicMock(spec=LLMProvider)
+        mock_provider2.complete = AsyncMock(
+            side_effect=LLMProviderError("p2", "503 Service Unavailable")
+        )
+        mock_provider2.name = "p2"
+
+        manager._providers = [mock_provider1, mock_provider2]
+
+        with pytest.raises(LLMAllProvidersFailedError) as exc_info:
+            await manager.complete("Test prompt")
+
+        # Error message should contain info about failures
+        assert "p1" in str(exc_info.value)
+        assert "p2" in str(exc_info.value)
+
+    def test_providers_property_returns_copy(self):
+        """Test that providers property returns a copy to prevent modification."""
+        from src.mcp_server.llm.manager import LLMManager
+        from src.mcp_server.llm.base import LLMProviderConfig, LLMProvider
+
+        manager = object.__new__(LLMManager)
+        mock_provider = MagicMock(spec=LLMProvider)
+        mock_provider.name = "test"
+        manager._providers = [mock_provider]
+
+        providers1 = manager.providers
+        providers2 = manager.providers
+
+        # Should be equal but not same object
+        assert providers1 == providers2
+        assert providers1 is not providers2
+
+    def test_multi_provider_config_loading(self):
+        """Test that multi-provider config is loaded correctly."""
+        from src.mcp_server.llm.manager import LLMManager, LLMProviderConfig
+
+        with patch("src.mcp_server.llm.manager.os.getenv") as mock_getenv:
+            def get_env(key, default=None):
+                env_map = {
+                    "LLM_PROVIDER_1_NAME": "primary",
+                    "LLM_PROVIDER_1_BASE_URL": "http://primary:11434/v1",
+                    "LLM_PROVIDER_1_API_KEY": "key1",
+                    "LLM_PROVIDER_1_MODEL": "llama3.2",
+                    "LLM_PROVIDER_2_NAME": "secondary",
+                    "LLM_PROVIDER_2_BASE_URL": "http://secondary:11434/v1",
+                    "LLM_PROVIDER_2_API_KEY": "key2",
+                    "LLM_PROVIDER_2_MODEL": "mistral",
+                    # No legacy vars
+                }
+                return env_map.get(key, default)
+            
+            mock_getenv.side_effect = get_env
+
+            manager = LLMManager()
+
+            assert len(manager._providers) == 2
+            assert manager._providers[0].name == "primary"
+            assert manager._providers[0].config.model == "llama3.2"
+            assert manager._providers[1].name == "secondary"
+            assert manager._providers[1].config.model == "mistral"
+
+    def test_multi_provider_missing_base_url_raises(self):
+        """Test that missing BASE_URL raises ValueError."""
+        from src.mcp_server.llm.manager import LLMManager
+
+        with patch("src.mcp_server.llm.manager.os.getenv") as mock_getenv:
+            def get_env(key, default=None):
+                env_map = {
+                    "LLM_PROVIDER_1_NAME": "bad-provider",
+                    # Missing BASE_URL and MODEL
+                }
+                return env_map.get(key, default)
+            
+            mock_getenv.side_effect = get_env
+
+            with pytest.raises(ValueError) as exc_info:
+                LLMManager()
+
+            assert "BASE_URL" in str(exc_info.value)
+
+    def test_multi_provider_missing_model_raises(self):
+        """Test that missing MODEL raises ValueError."""
+        from src.mcp_server.llm.manager import LLMManager
+
+        with patch("src.mcp_server.llm.manager.os.getenv") as mock_getenv:
+            def get_env(key, default=None):
+                env_map = {
+                    "LLM_PROVIDER_1_NAME": "bad-provider",
+                    "LLM_PROVIDER_1_BASE_URL": "http://localhost:11434/v1",
+                    # Missing MODEL
+                }
+                return env_map.get(key, default)
+            
+            mock_getenv.side_effect = get_env
+
+            with pytest.raises(ValueError) as exc_info:
+                LLMManager()
+
+            assert "MODEL" in str(exc_info.value)
+
+
+class TestLLMProviderError:
+    """Tests for LLMProviderError exception."""
+
+    def test_error_attributes(self):
+        """Test that error has correct attributes."""
+        from src.mcp_server.llm.exceptions import LLMProviderError
+
+        error = LLMProviderError("my-provider", "Connection failed", status_code=503)
+
+        assert error.provider_name == "my-provider"
+        assert error.status_code == 503
+        assert "my-provider" in str(error)
+        assert "Connection failed" in str(error)
+
+    def test_error_without_status_code(self):
+        """Test error when status code is not available."""
+        from src.mcp_server.llm.exceptions import LLMProviderError
+
+        error = LLMProviderError("test", "Something went wrong")
+
+        assert error.provider_name == "test"
+        assert error.status_code is None
+
+
+class TestLLMAllProvidersFailedError:
+    """Tests for LLMAllProvidersFailedError exception."""
+
+    def test_error_message(self):
+        """Test that error message includes provider count and errors."""
+        from src.mcp_server.llm.exceptions import LLMAllProvidersFailedError
+
+        error = LLMAllProvidersFailedError(
+            "All 3 LLM providers failed. Errors: [p1] Failed; [p2] Failed again"
+        )
+
+        assert "3" in str(error)
+        assert "p1" in str(error)
+        assert "p2" in str(error)

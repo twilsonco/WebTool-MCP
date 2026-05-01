@@ -1,21 +1,20 @@
 import os
 import re
-import json
 from datetime import datetime, timedelta
-from typing import Optional, Union
+from typing import Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
+from src.mcp_server.llm import LLMManager, LLMAllProvidersFailedError
+
 load_dotenv()
 mcp = FastMCP("WebTool")
 
-# Configuration from .env
-BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:11434/v1")
-MODEL_NAME = os.getenv("LLM_MODEL_NAME", "llama3.2")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# LLM Manager with multi-provider failover support
+llm_manager = LLMManager()
 
 # Default headers for HTTP requests (User-Agent required by many sites)
 DEFAULT_HEADERS = {
@@ -230,32 +229,14 @@ async def _search_google(query: str, num_results: int, offset: int = 0) -> dict:
 
 async def _call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
     """
-    Call the configured LLM endpoint (OpenAI-compatible).
+    Call the configured LLM endpoint(s) with failover support.
     Returns the assistant's response content.
+    Raises RuntimeError if all providers fail.
     """
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    headers = {"Content-Type": "application/json"}
-    if OPENAI_API_KEY:
-        headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
-
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{BASE_URL}/chat/completions",
-                json={"model": MODEL_NAME, "messages": messages},
-                headers=headers
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        return data["choices"][0]["message"]["content"]
-    except httpx.HTTPStatusError as e:
-        raise RuntimeError(f"LLM API error {e.response.status_code}: {e.response.text[:200]}")
-    except Exception as e:
-        raise RuntimeError(f"LLM inference failed: {str(e)}")
+        return await llm_manager.complete(prompt, system_prompt)
+    except LLMAllProvidersFailedError as e:
+        raise RuntimeError(str(e))
 
 DEFAULT_SUMMARY_PROMPT = """
 You are a technical summarizer. Analyze the provided web content and produce a concise, well-structured markdown summary.
