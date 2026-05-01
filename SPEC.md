@@ -382,10 +382,15 @@ src/mcp_server/
    # BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:11434/v1")
    # MODEL_NAME = os.getenv("LLM_MODEL_NAME", "llama3.2")
    # OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-   
+
    # ADD:
-   llm_manager = LLMManager()  # Initialized at module load
+   llm_manager = LLMManager()  # Initialized at module load with multi-provider support
    ```
+
+   The `LLMManager` automatically discovers and configures providers from environment variables:
+   - `LLM_PROVIDER_1_BASE_URL`, `LLM_PROVIDER_1_MODEL`, `LLM_PROVIDER_1_API_KEY` (required for first provider)
+   - `LLM_PROVIDER_2_*`, `LLM_PROVIDER_3_*`, etc. (optional, for failover)
+   - Providers are tried in order; if one fails, the next is used automatically
 
 3. **Replace `_call_llm()` function**:
    ```python

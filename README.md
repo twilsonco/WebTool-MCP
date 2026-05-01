@@ -72,11 +72,22 @@ WebTool uses environment variables for configuration. Copy `.env.example` to `.e
 
 ### LLM Configuration (for web_summarize)
 
+WebTool supports multiple LLM providers with automatic failover. Providers are tried in order (1, 2, 3...) - if the primary fails, the next provider is used automatically.
+
+**At least one provider must be configured using `LLM_PROVIDER_1_*` variables.**
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_COMPATIBLE_BASE_URL` | Yes | `http://localhost:11434/v1` | Base URL of OpenAI-compatible API (Ollama, OpenWebUI, etc.) |
-| `LLM_MODEL_NAME` | No | `llama3.2` | Model name for summarization |
-| `OPENAI_API_KEY` | No | (empty) | API key if your endpoint requires authentication |
+| `LLM_PROVIDER_1_NAME` | No | `provider1` | Optional name for Provider 1 (for logging/debugging) |
+| `LLM_PROVIDER_1_BASE_URL` | Yes | - | Base URL of Provider 1's OpenAI-compatible API (Ollama, OpenWebUI, etc.) |
+| `LLM_PROVIDER_1_MODEL` | No | `llama3.2` | Model name for Provider 1 |
+| `LLM_PROVIDER_1_API_KEY` | No | (empty) | API key if Provider 1 requires authentication |
+| `LLM_PROVIDER_2_NAME` | No | `provider2` | Optional name for Provider 2 (for logging/debugging) |
+| `LLM_PROVIDER_2_BASE_URL` | No* | - | Base URL of Provider 2 (failover) |
+| `LLM_PROVIDER_2_MODEL` | No | - | Model name for Provider 2 |
+| `LLM_PROVIDER_2_API_KEY` | No | (empty) | API key if Provider 2 requires authentication |
+
+*Only required if configuring failover support.
 
 ### Search Provider Configuration (for web_search)
 
@@ -251,8 +262,8 @@ To use WebTool-MCP with Claude Desktop, add the following to your Claude Desktop
                 "src/mcp_server/server.py"
             ],
             "env": {
-                "OPENAI_COMPATIBLE_BASE_URL": "http://localhost:11434/v1",
-                "LLM_MODEL_NAME": "llama3.2"
+                "LLM_PROVIDER_1_BASE_URL": "http://localhost:11434/v1",
+                "LLM_PROVIDER_1_MODEL": "llama3.2"
             }
         }
     }
@@ -272,8 +283,11 @@ For full functionality, also configure your search provider API keys in the envi
                 "src/mcp_server/server.py"
             ],
             "env": {
-                "OPENAI_COMPATIBLE_BASE_URL": "http://localhost:11434/v1",
-                "LLM_MODEL_NAME": "llama3.2",
+                "LLM_PROVIDER_1_BASE_URL": "http://localhost:11434/v1",
+                "LLM_PROVIDER_1_MODEL": "llama3.2",
+                "LLM_PROVIDER_2_BASE_URL": "https://api.openai.com/v1",
+                "LLM_PROVIDER_2_API_KEY": "sk-your-openai-key",
+                "LLM_PROVIDER_2_MODEL": "gpt-4o-mini",
                 "TAVILY_API_KEY": "your-tavily-api-key"
             }
         }
