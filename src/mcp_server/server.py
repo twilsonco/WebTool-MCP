@@ -9,10 +9,11 @@ from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
-from src.mcp_server.llm import LLMManager, LLMAllProvidersFailedError
+from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
 
 load_dotenv()
 mcp = FastMCP("WebTool")
+print("FastMCP initialized successfully")
 
 # LLM Manager with multi-provider failover support
 llm_manager = LLMManager()
@@ -578,4 +579,10 @@ async def web_fetch(
     return results
 
 if __name__ == "__main__":
-    mcp.run()
+    print("Starting MCP server...", flush=True)
+    try:
+        mcp.run()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"Server failed to start: {str(e)}")
