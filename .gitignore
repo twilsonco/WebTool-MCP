@@ -14,3 +14,14 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# START Ruler Generated Files
+/.agent/rules/ruler.md
+/.agent/rules/ruler.md.bak
+/.roo/mcp.json
+/.roo/mcp.json.bak
+/AGENTS.md
+/AGENTS.md.bak
+/CLAUDE.md
+/CLAUDE.md.bak
+# END Ruler Generated Files
