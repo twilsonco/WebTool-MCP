@@ -8,8 +8,8 @@ OpenAI-compatible chat completions interface.
 from typing import Optional
 import httpx
 
-from src.mcp_server.llm.base import LLMProvider, LLMProviderConfig
-from src.mcp_server.llm.exceptions import LLMProviderError
+from .base import LLMProvider, LLMProviderConfig
+from .exceptions import LLMProviderError
 
 
 class OpenAICompatibleProvider(LLMProvider):

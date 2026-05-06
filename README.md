@@ -25,11 +25,12 @@ Fetch URLs and convert HTML content to Markdown format with optional filtering a
 ### web_search
 Multi-provider web search with support for:
 
-- **Tavily AI** - Default provider, good general-purpose search
+- **Miklium** - Free provider, no API key required (always available)
+- **Tavily AI** - General-purpose search with good results
 - **Brave Search** - Privacy-focused search with freshness filters
 - **Google Custom Search** - Programmable Search Engine integration
 
-Features include date filtering (results from the last N days) and pagination via offset.
+Features include automatic failover between providers and date filtering (results from the last N days).
 
 ### web_summarize
 Fetch URLs and generate AI-powered summaries using a configured LLM endpoint.
@@ -42,9 +43,8 @@ Fetch URLs and generate AI-powered summaries using a configured LLM endpoint.
 ## Prerequisites
 
 - Python 3.10 or higher
-- One or more API keys depending on which features you need:
-  - For **web_search**: At least one of BRAVE_API_KEY, TAVILY_API_KEY, or GOOGLE_API_KEY + GOOGLE_SEARCH_ENGINE_ID
-  - For **web_summarize**: An OpenAI-compatible endpoint (Ollama, OpenWebUI, etc.)
+- For **web_search**: Works out-of-the-box with Miklium (no API key required). Optional: add TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY + GOOGLE_SEARCH_ENGINE_ID for additional providers
+- For **web_summarize**: An OpenAI-compatible endpoint (Ollama, OpenWebUI, etc.)
 
 ## Installation
 
@@ -91,25 +91,32 @@ WebTool supports multiple LLM providers with automatic failover. Providers are t
 
 ### Search Provider Configuration (for web_search)
 
-Configure at least one search provider:
+Web search works out-of-the-box with **Miklium** (no API key required). Additional providers can be configured for redundancy.
 
-#### Tavily AI (recommended default)
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TAVILY_API_KEY` | Yes* | API key from tavily.com |
+#### Miklium (default, no configuration needed)
+Free web search provider. No environment variables required - it's always available as the primary provider.
+
+#### Tavily AI
+| Variable | Required* | Description |
+|----------|-----------|-------------|
+| `TAVILY_API_KEY` | Yes* | API key from tavily.com (get one at tavily.com) |
+
+*Only required if you want to use Tavily as a search provider.
 
 #### Brave Search
-| Variable | Required | Description |
-|----------|----------|-------------|
+| Variable | Required* | Description |
+|----------|-----------|-------------|
 | `BRAVE_API_KEY` | Yes* | API key from brave.com/search/api |
 
+*Only required if you want to use Brave as a search provider.
+
 #### Google Custom Search
-| Variable | Required | Description |
-|----------|----------|-------------|
+| Variable | Required* | Description |
+|----------|-----------|-------------|
 | `GOOGLE_API_KEY` | Yes* | API key from Google Cloud Console |
 | `GOOGLE_SEARCH_ENGINE_ID` | Yes* | Search Engine ID from Programmable Search Engine |
 
-*At least one search provider is required for web_search functionality.
+*Only required if you want to use Google as a search provider.
 
 ## Usage
 
@@ -178,7 +185,7 @@ Each search specification:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `query` | str | Required | Search query string |
-| `provider` | str | `"tavily"` | Provider: "brave", "google", or "tavily" |
+| `provider` | str | `"miklium"` | Provider: "tavily", "brave", "google", or "miklium" (default works without API key) |
 | `num_results` | int | `10` | Number of results (max 20) |
 | `days` | int | `0` | Filter to last N days (0 = no filter) |
 | `offset` | int | `0` | Pagination offset (not supported by Tavily) |

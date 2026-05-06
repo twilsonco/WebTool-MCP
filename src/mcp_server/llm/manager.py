@@ -8,9 +8,9 @@ calls in priority order until one succeeds.
 import os
 from typing import List, Optional
 
-from src.mcp_server.llm.base import LLMProvider, LLMProviderConfig
-from src.mcp_server.llm.exceptions import LLMAllProvidersFailedError, LLMProviderError
-from src.mcp_server.llm.openai_compatible import OpenAICompatibleProvider
+from .base import LLMProvider, LLMProviderConfig
+from .exceptions import LLMAllProvidersFailedError, LLMProviderError
+from .openai_compatible import OpenAICompatibleProvider
 
 
 class LLMManager:

@@ -12,23 +12,25 @@ This script tests the MCP server's tool capabilities by making requests to the f
 
 ### How to Run
 
-1. First, start the MCP server from the project root. By default, it runs on `http://localhost:5000` (127.0.0.1:5000):
+The server requires the `--http` flag for HTTP transport mode (stdio is default for MCP clients):
+
+1. Start the MCP server with HTTP transport from the project root:
    ```bash
-   uv run python -m src.mcp_server.server
+   uv run python src/mcp_server/server.py --http
    ```
 
-2. Then, run the test script from the project root:
+2. In a separate terminal, run the test script from the project root:
    ```bash
-   uv run python test_mcp.py
+   uv run python examples/test_mcp.py
    ```
 
 The script will output JSON responses showing the results from each tool call.
 
 ### Requirements
 
-- The server must be running on `http://localhost:5000` (default local development configuration). The test script connects to this local endpoint using 127.0.0.1 (localhost) interface, requiring no external network access for the client-server communication.
+- The server must be running with `--http` on `http://localhost:8000` (uvicorn default). Set `MCP_SERVER_PORT` env var to change the port if needed. The test script connects to this endpoint.
 - Internet connection for making web requests
-- Proper API keys configured in `.env` for search providers
+- For `web_summarize`, configure LLM providers in `.env` (optional - search and fetch work without it)
 
 ### Expected Output
 

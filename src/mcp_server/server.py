@@ -579,9 +579,20 @@ async def web_fetch(
     return results
 
 if __name__ == "__main__":
+    import argparse
     print("Starting MCP server...", flush=True)
     try:
-        mcp.run()
+        parser = argparse.ArgumentParser(description="WebTool MCP Server")
+        parser.add_argument("--http", action="store_true", help="Enable HTTP transport (SSE mode)")
+        parser.add_argument("--port", type=int, default=8000, help="Port for HTTP transport (default: 8000)")
+        args = parser.parse_args()
+
+        if args.http:
+            import uvicorn
+            app = mcp.sse_app(mount_path="/mcp/9786")
+            uvicorn.run(app, host="127.0.0.1", port=args.port)
+        else:
+            mcp.run()
     except Exception as e:
         import traceback
         traceback.print_exc()
