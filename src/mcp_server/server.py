@@ -5,15 +5,50 @@ from datetime import datetime, timedelta
 from typing import Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.server.auth.settings import AuthSettings
+from mcp.server.transport_security import TransportSecuritySettings
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
+from mcp_server.auth import StaticTokenVerifier, load_api_keys_from_env
 from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
 
 load_dotenv()
-mcp = FastMCP("WebTool")
-print("FastMCP initialized successfully")
+
+# Load authentication and host configuration
+api_keys = load_api_keys_from_env()
+server_host = os.getenv("MCP_HOST", "127.0.0.1")
+
+# Configure Bearer token authentication when API keys are present
+token_verifier = StaticTokenVerifier(api_keys) if api_keys else None
+auth_settings = None
+if token_verifier:
+    auth_settings = AuthSettings(
+        issuer_url=f"http://{server_host}:8000",
+        resource_server_url=f"http://{server_host}:8000",
+        required_scopes=["mcp"],
+    )
+
+# Configure DNS rebinding protection for non-localhost hosts
+transport_security = None
+if server_host not in ("127.0.0.1", "localhost", "::1"):
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[f"{server_host}:*"],
+    )
+
+mcp = FastMCP(
+    "WebTool",
+    host=server_host,
+    token_verifier=token_verifier,
+    auth=auth_settings,
+    transport_security=transport_security,
+)
+if api_keys:
+    print(f"FastMCP initialized with Bearer token auth ({len(api_keys)} key(s))")
+else:
+    print("FastMCP initialized (no API keys — auth disabled)")
 
 # LLM Manager with multi-provider failover support
 llm_manager = LLMManager()
@@ -583,14 +618,15 @@ if __name__ == "__main__":  # pragma: no cover
     print("Starting MCP server...", flush=True)
     try:
         parser = argparse.ArgumentParser(description="WebTool MCP Server")
-        parser.add_argument("--http", action="store_true", help="Enable HTTP transport (SSE mode)")
+        parser.add_argument("--http", action="store_true", help="Enable HTTP transport (Streamable HTTP)")
+        parser.add_argument("--host", default=server_host, help="Bind address (default: 127.0.0.1)")
         parser.add_argument("--port", type=int, default=8000, help="Port for HTTP transport (default: 8000)")
         args = parser.parse_args()
 
         if args.http:
             import uvicorn
             app = mcp.streamable_http_app()
-            uvicorn.run(app, host="127.0.0.1", port=args.port)
+            uvicorn.run(app, host=args.host, port=args.port)
         else:
             mcp.run()
     except Exception as e:
