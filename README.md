@@ -25,15 +25,15 @@ Fetch URLs and convert HTML content to Markdown format with optional filtering a
 ### web_search
 Multi-provider web search with support for:
 
-- **Miklium** - Free provider, no API key required (always available)
-- **Tavily AI** - General-purpose search with good results
-- **Brave Search** - Privacy-focused search with freshness filters
-- **Google Custom Search** - Programmable Search Engine integration
+- **[Miklium](https://github.com/MIKLIUM-Team/MIKLIUM/blob/main/api/search/README.md)** - Free provider, no API key required (always available, but subject to rate limits and potential downtime)
+- **[Tavily AI](https://www.tavily.com)** - General-purpose search with good results catered to LLM consumption (requires API key from tavily.com)
+- **[Brave Search](https://brave.com/search/api/)** - Privacy-focused search with freshness filters (requires API key from brave.com/search/api)
+- **[Google Custom Search](https://developers.google.com/custom-search/docs/overview)** - Programmable Search Engine integration (requires API key and Search Engine ID from Google)
 
 Features include automatic failover between providers and date filtering (results from the last N days).
 
 ### web_summarize
-Fetch URLs and generate AI-powered summaries using a configured LLM endpoint.
+Fetch URLs and generate AI-powered summaries using a configured LLM endpoint. This way you get the most relevant information without overwhelming the model with too much content.
 
 - Individual summaries for each URL via OpenAI-compatible API
 - Optional synthesis mode to combine multiple sources into one overview
