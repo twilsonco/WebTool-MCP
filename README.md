@@ -175,13 +175,44 @@ Fetch URLs and convert to Markdown.
 
 **Returns:** `{url: markdown_content}`
 
-**Example:**
+**Example (Python):**
 ```python
 result = await web_fetch(
     urls=["https://example.com"],
     num_words=500,
     regex="important|match"
 )
+```
+
+**Example (curl — HTTP transport):**
+
+First initialize a session:
+```bash
+curl -X POST http://localhost:8000/mcp \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"curl","version":"1.0"},"protocolVersion":"2025-11-25"}}'
+```
+
+Then call the tool (include the `mcp-session-id` header from the initialize response):
+```bash
+curl -X POST http://localhost:8000/mcp \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: <session-id>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "web_fetch",
+      "arguments": {
+        "urls": ["https://example.com"],
+        "num_words": 500,
+        "regex": "important|match"
+      }
+    }
+  }'
 ```
 
 #### web_search
@@ -216,7 +247,7 @@ Each search specification:
 ]
 ```
 
-**Example:**
+**Example (Python):**
 ```python
 result = await web_search({
     "searches": [
@@ -224,6 +255,30 @@ result = await web_search({
         {"query": "MCP protocol", "provider": "brave", "days": 7}
     ]
 })
+```
+
+**Example (curl — HTTP transport):**
+
+After initializing a session (see web_fetch example above), call the tool:
+```bash
+curl -X POST http://localhost:8000/mcp \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: <session-id>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "web_search",
+      "arguments": {
+        "searches": [
+          {"query": "Python async programming", "provider": "tavily", "num_results": 5},
+          {"query": "MCP protocol", "provider": "brave", "days": 7}
+        ]
+      }
+    }
+  }'
 ```
 
 #### web_summarize
@@ -250,7 +305,7 @@ Fetch URLs and generate LLM-powered summaries.
 }
 ```
 
-**Example:**
+**Example (Python):**
 ```python
 result = await web_summarize(
     urls=["https://docs.python.org/3/library/asyncio.html"],
@@ -258,6 +313,30 @@ result = await web_summarize(
     reduce=True,
     max_words_per_url=1000
 )
+```
+
+**Example (curl — HTTP transport):**
+
+After initializing a session (see web_fetch example above), call the tool:
+```bash
+curl -X POST http://localhost:8000/mcp \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: <session-id>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "web_summarize",
+      "arguments": {
+        "urls": ["https://docs.python.org/3/library/asyncio.html"],
+        "summary_prompt": "Focus on async/await patterns and best practices.",
+        "reduce": true,
+        "max_words_per_url": 1000
+      }
+    }
+  }'
 ```
 
 ## MCP Client Integration
