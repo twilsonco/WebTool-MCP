@@ -466,7 +466,7 @@ nssm start WebToolMCP
 
 ## TODO
 
-- **More search sources** — Add academic and preprint search providers: arXiv, ChemRxiv, etc.
+- **More search sources** — Add academic and preprint search providers: arXiv, ChemRxiv, etc. (pdf link in results can be fetched or summarized to reduce tokens)
 - **AI-powered scraping** — Add browser automation capabilities via browser-use, Playwright, Skyvern, etc. for sites that require JavaScript rendering or interactive navigation.
 
 ## Architecture Notes
