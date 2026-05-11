@@ -336,6 +336,134 @@ Run only specific test files:
 uv run pytest tests/test_server.py
 ```
 
+## Running as an Always-On Service
+
+For HTTP-mode deployments (via the `--http` flag), you can run WebTool-MCP as a persistent background service. This is useful when you want the server available at all times without manually starting it each session.
+
+### macOS — launchctl
+
+1. Create a launch agent plist:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.webtool.mcp</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/YOU/.local/bin/uv</string>
+        <string>run</string>
+        <string>python</string>
+        <string>src/mcp_server/server.py</string>
+        <string>--http</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOU/NoSync/WebTool-MCP</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LLM_PROVIDER_1_BASE_URL</key>
+        <string>http://localhost:11434/v1</string>
+        <key>LLM_PROVIDER_1_MODEL</key>
+        <string>llama3.2</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/webtool-mcp.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/webtool-mcp.err</string>
+</dict>
+</plist>
+```
+
+2. Save it as `~/Library/LaunchAgents/com.webtool.mcp.plist`, then load and start it:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.webtool.mcp.plist
+```
+
+The server will start at login and restart on crash (`KeepAlive`). Adjust the `WorkingDirectory`, `ProgramArguments` path to `uv`, and `EnvironmentVariables` to match your setup.
+
+To stop or unload:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.webtool.mcp.plist
+```
+
+### Linux — systemctl
+
+1. Create a systemd user service unit:
+
+```ini
+[Unit]
+Description=WebTool MCP Server (HTTP)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/you/WebTool-MCP
+ExecStart=/home/you/.local/bin/uv run python src/mcp_server/server.py --http --port 8000
+Environment=LLM_PROVIDER_1_BASE_URL=http://localhost:11434/v1
+Environment=LLM_PROVIDER_1_MODEL=llama3.2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+2. Save it as `~/.config/systemd/user/webtool-mcp.service`, then enable and start:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable webtool-mcp.service
+systemctl --user start webtool-mcp.service
+```
+
+To check status or stop:
+
+```bash
+systemctl --user status webtool-mcp.service
+systemctl --user stop webtool-mcp.service
+```
+
+To view logs:
+
+```bash
+journalctl --user -u webtool-mcp.service -f
+```
+
+### Windows — Task Scheduler
+
+1. Open **Task Scheduler** and create a task under **Task Scheduler Library**.
+
+2. Configure the task:
+   - **Triggers:** "At log on" for your user account
+   - **Action:** "Start a program"
+     - Program: `uv.exe` (full path, e.g. `C:\Users\You\.local\bin\uv.exe`)
+     - Arguments: `run python src/mcp_server/server.py --http --port 8000`
+     - Start in: `C:\Users\You\WebTool-MCP`
+   - **Conditions:** Uncheck "Start only if the network is available" if you want it to start offline
+   - **Settings:** Enable "Restart if the task fails" with a 5-second delay, up to 3 retries
+
+3. Set environment variables by adding a **Environment** tab (available in Task Scheduler via the `Actions` pane → **Properties** → **Settings**), or by defining them system-wide via **System Properties** → **Environment Variables**.
+
+For a more robust service, [NSSM (Non-Sucking Service Manager)](https://nssm.cc/) can wrap the server as a proper Windows service:
+
+```powershell
+nssm install WebToolMCP "C:\Users\You\.local\bin\uv.exe" "run python src/mcp_server/server.py --http --port 8000"
+nssm set WebToolMCP AppDirectory "C:\Users\You\WebTool-MCP"
+nssm set WebToolMCP AppEnvironmentExtra LLM_PROVIDER_1_BASE_URL=http://localhost:11434/v1 LLM_PROVIDER_1_MODEL=llama3.2
+nssm start WebToolMCP
+```
+
 ## Architecture Notes
 
 ### Async-Only Design
