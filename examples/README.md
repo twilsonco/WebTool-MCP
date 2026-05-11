@@ -4,7 +4,7 @@ This directory contains example scripts demonstrating how to interact with the W
 
 ## test_mcp.py
 
-This script tests the MCP server's tool capabilities by making requests to the following endpoints:
+This script tests the MCP server's tool capabilities by connecting via the MCP streamable-http client and calling the following tools:
 
 1. `web_search` - Performs a web search for "Python MCP server implementation"
 2. `web_fetch` - Fetches and processes content from https://example.com
@@ -28,7 +28,7 @@ The script will output JSON responses showing the results from each tool call.
 
 ### Requirements
 
-- The server must be running with `--http` on `http://localhost:8000` (uvicorn default). Set `MCP_SERVER_PORT` env var to change the port if needed. The test script connects to this endpoint.
+- The server must be running with `--http` on `http://localhost:8000` (uvicorn default). Set `MCP_SERVER_PORT` env var to change the port if needed. The test script uses the MCP client SDK (`streamable_http_client`) to connect to `/mcp` via JSON-RPC.
 - Internet connection for making web requests
 - For `web_summarize`, configure LLM providers in `.env` (optional - search and fetch work without it)
 

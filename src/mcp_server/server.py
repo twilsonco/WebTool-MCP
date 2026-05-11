@@ -589,7 +589,7 @@ if __name__ == "__main__":
 
         if args.http:
             import uvicorn
-            app = mcp.sse_app(mount_path="/mcp/9786")
+            app = mcp.streamable_http_app()
             uvicorn.run(app, host="127.0.0.1", port=args.port)
         else:
             mcp.run()
