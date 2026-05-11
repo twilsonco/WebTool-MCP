@@ -464,6 +464,11 @@ nssm set WebToolMCP AppEnvironmentExtra LLM_PROVIDER_1_BASE_URL=http://localhost
 nssm start WebToolMCP
 ```
 
+## TODO
+
+- **More search sources** — Add academic and preprint search providers: arXiv, ChemRxiv, etc.
+- **AI-powered scraping** — Add browser automation capabilities via browser-use, Playwright, Skyvern, etc. for sites that require JavaScript rendering or interactive navigation.
+
 ## Architecture Notes
 
 ### Async-Only Design
