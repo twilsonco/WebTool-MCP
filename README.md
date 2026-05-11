@@ -122,10 +122,22 @@ Free web search provider. No environment variables required - it's always availa
 
 ### Starting the Server
 
-Run the MCP server directly:
+Run the MCP server directly (stdio transport, for MCP client integration):
 ```bash
 uv run python src/mcp_server/server.py
 ```
+
+For HTTP transport (for testing or non-stdio clients), use the `--http` flag:
+```bash
+uv run python src/mcp_server/server.py --http
+```
+
+The default HTTP port is 8000. Change it with `--port`:
+```bash
+uv run python src/mcp_server/server.py --http --port 9000
+```
+
+The HTTP server mounts at `/mcp` and uses the MCP streamable-http transport.
 
 ### Running Examples
 
@@ -155,7 +167,7 @@ Fetch URLs and convert to Markdown.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `urls` | `list[str]` | Required | List of URLs to fetch |
-| `include_links` | bool | `False` | Include extracted links in output |
+| `include_links` | bool | `False` | When True, preserve anchor tag hrefs in output; when False (default), unwrap anchor tags keeping only text |
 | `start_word` | int | `0` | Starting word index for pagination |
 | `num_words` | int | `1000` | Maximum words to return per URL |
 | `regex` | str | `None` | Regex pattern to filter content |
@@ -187,15 +199,15 @@ Each search specification:
 | `query` | str | Required | Search query string |
 | `provider` | str | `"miklium"` | Provider: "tavily", "brave", "google", or "miklium" (default works without API key) |
 | `num_results` | int | `10` | Number of results (max 20) |
-| `days` | int | `0` | Filter to last N days (0 = no filter) |
-| `offset` | int | `0` | Pagination offset (not supported by Tavily) |
+| `days` | int | `0` | Filter to last N days (0 = no filter). Tavily computes start_date internally; Brave maps to freshness codes (pd/pw/pm/py); Google ignores this parameter |
+| `offset` | int | `0` | Pagination offset (supported by Brave and Google; not supported by Tavily or Miklium) |
 
 **Returns:**
 ```python
 [
     {
         "query": "search term",
-        "provider": "tavily",
+        "provider": "miklium",
         "results": [
             {"title": "Result Title", "url": "https://...", "snippet": "Description"},
             ...
@@ -336,7 +348,10 @@ All API keys are loaded from the `.env` file at startup. The server never hardco
 Content is converted to Markdown format using `markdownify`, making it ideal for consumption by LLMs without HTML parsing overhead.
 
 ### Multi-Provider Search
-The web_search tool abstracts over multiple search providers, normalizing their output formats. If a provider's API key is not configured, the tool returns an appropriate error message rather than failing silently.
+The web_search tool abstracts over multiple search providers, normalizing their output formats. Miklium is always available as the default provider (no API key required). Additional providers (Tavily, Brave, Google) are enabled when their API keys are configured. When a preferred provider fails or is not configured, the tool automatically fails over to the next available provider in priority order (miklium > tavily > brave > google). Miklium queries are batched in groups of up to 3 per API request for efficiency.
+
+### Brave Freshness Mapping
+The `days` parameter is mapped to Brave's freshness codes: 1 day = `pd`, 7 days = `pw`, 31 days = `pm`, 365 days = `py`. Values outside these ranges produce no freshness filter.
 
 ## Dependencies
 

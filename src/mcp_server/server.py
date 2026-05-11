@@ -170,7 +170,7 @@ async def web_search(searches: list[dict]) -> list[dict]:
     for idx, search_spec in other_searches:
         query = search_spec.get("query", "")
         if not query:
-            continue  # Already handled above
+            continue  # pragma: no cover - defensive guard; empty queries are filtered before this loop
 
         preferred_provider = search_spec.get("provider")
         num_results = min(search_spec.get("num_results", 10), 20)
@@ -578,7 +578,7 @@ async def web_fetch(
                 results[url] = f"Error fetching {url}: {str(e)}"
     return results
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     import argparse
     print("Starting MCP server...", flush=True)
     try:

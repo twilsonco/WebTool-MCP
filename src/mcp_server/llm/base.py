@@ -34,24 +34,24 @@ class LLMProvider(ABC):
 
     @property
     @abstractmethod
-    def name(self) -> str:
+    def name(self) -> str:  # pragma: no cover
         """Return the provider's unique identifier."""
         pass
 
     @property
     @abstractmethod
-    def config(self) -> LLMProviderConfig:
+    def config(self) -> LLMProviderConfig:  # pragma: no cover
         """Return the provider configuration."""
         pass
 
     @abstractmethod
-    async def is_available(self, timeout: float = 5.0) -> bool:
+    async def is_available(self, timeout: float = 5.0) -> bool:  # pragma: no cover
         """
         Check if the provider endpoint is reachable and responsive.
-        
+
         Args:
             timeout: Maximum seconds to wait for a response.
-            
+
         Returns:
             True if provider is available, False otherwise.
         """
@@ -62,17 +62,17 @@ class LLMProvider(ABC):
         self,
         prompt: str,
         system_prompt: Optional[str] = None
-    ) -> str:
+    ) -> str:  # pragma: no cover
         """
         Send a completion request to the LLM.
-        
+
         Args:
             prompt: The user message content.
             system_prompt: Optional system message for context.
-            
+
         Returns:
             The assistant's response content as a string.
-            
+
         Raises:
             LLMProviderError: If the request fails for any reason.
         """
