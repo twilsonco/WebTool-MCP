@@ -33,11 +33,10 @@ Multi-provider web search with support for:
 Features include automatic failover between providers and date filtering (results from the last N days).
 
 ### web_summarize
-Fetch URLs and generate AI-powered summaries using a configured LLM endpoint. This way you get the most relevant information without overwhelming the model with too much content.
+Fetch a URL and generate an AI-powered summary using a configured LLM endpoint. This way you get the most relevant information without overwhelming the model with too much content.
 
-- Individual summaries for each URL via OpenAI-compatible API
-- Optional synthesis mode to combine multiple sources into one overview
-- Configurable prompts for both per-URL summarization and reduction steps
+- Summarization via OpenAI-compatible API
+- Configurable prompts for guiding the summary focus
 - Automatic truncation of long content before processing
 
 ## Prerequisites
@@ -161,24 +160,24 @@ uv run python examples/run_examples.py summarize
 
 #### web_fetch
 
-Fetch URLs and convert to Markdown.
+Fetch a URL and convert to Markdown.
 
 **Parameters:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `urls` | `list[str]` | Required | List of URLs to fetch |
+| `url` | str | Required | URL to fetch |
 | `include_links` | bool | `False` | When True, preserve anchor tag hrefs in output; when False (default), unwrap anchor tags keeping only text |
 | `start_word` | int | `0` | Starting word index for pagination |
-| `num_words` | int | `1000` | Maximum words to return per URL |
+| `num_words` | int | `1000` | Maximum words to return |
 | `regex` | str | `None` | Regex pattern to filter content |
 | `regex_padding` | int | `50` | Characters of context around regex matches |
 
-**Returns:** `{url: markdown_content}`
+**Returns:** `{"url": "...", "content": "markdown"}` or `{"url": "...", "error": "..."}`
 
 **Example (Python):**
 ```python
 result = await web_fetch(
-    urls=["https://example.com"],
+    url="https://example.com",
     num_words=500,
     regex="important|match"
 )
@@ -207,7 +206,7 @@ curl -X POST http://localhost:8000/mcp \
     "params": {
       "name": "web_fetch",
       "arguments": {
-        "urls": ["https://example.com"],
+        "url": "https://example.com",
         "num_words": 500,
         "regex": "important|match"
       }
@@ -217,44 +216,37 @@ curl -X POST http://localhost:8000/mcp \
 
 #### web_search
 
-Execute one or more web searches.
+Execute a web search with automatic failover between configured providers.
 
 **Parameters:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `searches` | `list[dict]` | Required | List of search specifications |
-
-Each search specification:
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
 | `query` | str | Required | Search query string |
 | `provider` | str | `"miklium"` | Provider: "tavily", "brave", "google", or "miklium" (default works without API key) |
 | `num_results` | int | `10` | Number of results (max 20) |
-| `days` | int | `0` | Filter to last N days (0 = no filter). Tavily computes start_date internally; Brave maps to freshness codes (pd/pw/pm/py); Google ignores this parameter |
+| `days` | int | `0` | Filter to last N days (0 = no filter). Tavily computes start_date internally; Brave maps to freshness codes (pd/pw/pm/py); Google and Miklium ignore this parameter |
 | `offset` | int | `0` | Pagination offset (supported by Brave and Google; not supported by Tavily or Miklium) |
 
 **Returns:**
 ```python
-[
-    {
-        "query": "search term",
-        "provider": "miklium",
-        "results": [
-            {"title": "Result Title", "url": "https://...", "snippet": "Description"},
-            ...
-        ]
-    }
-]
+{
+    "query": "search term",
+    "provider": "miklium",
+    "results": [
+        {"title": "Result Title", "url": "https://...", "snippet": "Description"},
+        ...
+    ],
+    "failover_attempts": [...]  # Only present when failover occurred
+}
 ```
 
 **Example (Python):**
 ```python
-result = await web_search({
-    "searches": [
-        {"query": "Python async programming", "provider": "tavily", "num_results": 5},
-        {"query": "MCP protocol", "provider": "brave", "days": 7}
-    ]
-})
+result = await web_search(
+    query="Python async programming",
+    provider="tavily",
+    num_results=5
+)
 ```
 
 **Example (curl — HTTP transport):**
@@ -272,10 +264,9 @@ curl -X POST http://localhost:8000/mcp \
     "params": {
       "name": "web_search",
       "arguments": {
-        "searches": [
-          {"query": "Python async programming", "provider": "tavily", "num_results": 5},
-          {"query": "MCP protocol", "provider": "brave", "days": 7}
-        ]
+        "query": "Python async programming",
+        "provider": "tavily",
+        "num_results": 5
       }
     }
   }'
@@ -283,34 +274,35 @@ curl -X POST http://localhost:8000/mcp \
 
 #### web_summarize
 
-Fetch URLs and generate LLM-powered summaries.
+Fetch a URL and generate an LLM-powered summary.
 
 **Parameters:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `urls` | `list[str]` | Required | List of URLs to summarize |
-| `summary_prompt` | str | (built-in) | Custom prompt for per-URL summarization |
-| `reduce` | bool | `False` | Synthesize all summaries into one |
-| `reduction_prompt` | str | (built-in) | Custom prompt for synthesis step |
+| `url` | str | Required | URL to summarize |
+| `summary_prompt` | str | (built-in) | Custom prompt for summarization |
 | `max_words_per_url` | int | `800` | Max words before truncation |
 
 **Returns:**
 ```python
 {
-    "summaries": {
-        "https://example.com": {"summary": "Summarized content..."},
-        ...
-    },
-    "combined": {"summary": "Synthesized overview..."}  # Only if reduce=True
+    "url": "https://example.com",
+    "summary": "Summarized content..."
+}
+```
+Or on error:
+```python
+{
+    "url": "https://example.com",
+    "error": "Error description..."
 }
 ```
 
 **Example (Python):**
 ```python
 result = await web_summarize(
-    urls=["https://docs.python.org/3/library/asyncio.html"],
+    url="https://docs.python.org/3/library/asyncio.html",
     summary_prompt="Focus on async/await patterns and best practices.",
-    reduce=True,
     max_words_per_url=1000
 )
 ```
@@ -330,9 +322,8 @@ curl -X POST http://localhost:8000/mcp \
     "params": {
       "name": "web_summarize",
       "arguments": {
-        "urls": ["https://docs.python.org/3/library/asyncio.html"],
+        "url": "https://docs.python.org/3/library/asyncio.html",
         "summary_prompt": "Focus on async/await patterns and best practices.",
-        "reduce": true,
         "max_words_per_url": 1000
       }
     }
@@ -560,7 +551,7 @@ All API keys are loaded from the `.env` file at startup. The server never hardco
 Content is converted to Markdown format using `markdownify`, making it ideal for consumption by LLMs without HTML parsing overhead.
 
 ### Multi-Provider Search
-The web_search tool abstracts over multiple search providers, normalizing their output formats. Miklium is always available as the default provider (no API key required). Additional providers (Tavily, Brave, Google) are enabled when their API keys are configured. When a preferred provider fails or is not configured, the tool automatically fails over to the next available provider in priority order (miklium > tavily > brave > google). Miklium queries are batched in groups of up to 3 per API request for efficiency.
+The web_search tool abstracts over multiple search providers, normalizing their output formats. Miklium is always available as the default provider (no API key required). Additional providers (Tavily, Brave, Google) are enabled when their API keys are configured. When a preferred provider fails or is not configured, the tool automatically fails over to the next available provider in priority order (miklium > tavily > brave > google).
 
 ### Brave Freshness Mapping
 The `days` parameter is mapped to Brave's freshness codes: 1 day = `pd`, 7 days = `pw`, 31 days = `pm`, 365 days = `py`. Values outside these ranges produce no freshness filter.

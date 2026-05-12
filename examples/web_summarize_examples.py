@@ -4,6 +4,11 @@ web_summarize examples - Demonstrates usage of the web_summarize MCP tool.
 This script imports and calls the actual implementations directly.
 Loads API keys from .env in project root.
 Requires LLM_PROVIDER_1_* variables to be configured (multi-provider support).
+
+The atomic API summarizes one URL per call:
+    result = await real_web_summarize("https://example.com", max_words_per_url=500)
+
+Returns a dict with 'url' and 'summary', or 'error' on failure.
 """
 import os
 import sys
@@ -27,61 +32,26 @@ async def example_single_url():
     print("EXAMPLE 1: Single URL Summary")
     print("=" * 60)
 
-    urls = ["https://blog.comma.ai/011release/"]
+    url = "https://blog.comma.ai/011release/"
 
-    print(f"\nSummarizing {urls[0]}...")
-    result = await real_web_summarize(urls, max_words_per_url=500)
+    print(f"\nSummarizing {url}...")
+    result = await real_web_summarize(url, max_words_per_url=500)
 
-    if "summaries" in result:
-        for url, data in result["summaries"].items():
-            print(f"\nURL: {url}")
-            print("-" * 40)
-            if "summary" in data:
-                print(data["summary"])
-            elif "error" in data:
-                print(f"Error: {data['error']}")
-
-
-async def example_multiple_urls_reduce():
-    """Example 2: Summarize multiple URLs with synthesis."""
-    print("\n" + "=" * 60)
-    print("EXAMPLE 2: Multiple URLs with Synthesis (reduce=True)")
-    print("=" * 60)
-
-    urls = [
-        "https://example.com",
-        "https://httpbin.org/html",
-    ]
-
-    print(f"\nSummarizing {len(urls)} URLs and synthesizing...")
-    result = await real_web_summarize(
-        urls,
-        reduce=True,
-        max_words_per_url=300
-    )
-
-    if "summaries" in result:
-        print("\nIndividual Summaries:")
+    if "summary" in result:
+        print(f"\nURL: {result['url']}")
         print("-" * 40)
-        for url, data in result["summaries"].items():
-            preview = data.get("summary", data.get("error", "unknown"))[:150]
-            print(f"\n[{url}]")
-            print(preview + "..." if len(data.get("summary", "")) > 150 else preview)
-
-    if "combined" in result:
-        print("\n" + "=" * 40)
-        print("Combined/Synthesized Summary:")
-        print("-" * 40)
-        print(result["combined"].get("summary", "N/A"))
+        print(result["summary"])
+    elif "error" in result:
+        print(f"\nError: {result['error']}")
 
 
 async def example_custom_summary_prompt():
-    """Example 3: Custom prompt for technical focus."""
+    """Example 2: Custom prompt for technical focus."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 3: Custom Summary Prompt (technical focus)")
+    print("EXAMPLE 2: Custom Summary Prompt (technical focus)")
     print("=" * 60)
 
-    urls = ["https://httpbin.org/html"]
+    url = "https://httpbin.org/html"
 
     custom_prompt = """
 Focus on extracting:
@@ -94,64 +64,31 @@ Format as: ## Overview\n## Technical Details\n## Examples
 
     print(f"\nSummarizing with custom technical prompt...")
     result = await real_web_summarize(
-        urls,
+        url,
         summary_prompt=custom_prompt,
         max_words_per_url=400
     )
 
-    if "summaries" in result:
-        for url, data in result["summaries"].items():
-            print(f"\nURL: {url}")
-            print("-" * 40)
-            if "summary" in data:
-                print(data["summary"])
-
-
-async def example_custom_reduction_prompt():
-    """Example 4: Custom prompt for synthesis/comparison."""
-    print("\n" + "=" * 60)
-    print("EXAMPLE 4: Custom Reduction Prompt (comparison)")
-    print("=" * 60)
-
-    urls = [
-        "https://example.com",
-        "https://httpbin.org/html",
-    ]
-
-    reduction_prompt = """
-Compare and contrast these document summaries. Identify:
-- Common themes or overlapping information
-- Unique contributions from each source
-- Any conflicting claims or approaches
-Format as: ## Shared Content\n## Unique Points\n## Conclusion
-""".strip()
-
-    print(f"\nSummarizing with custom comparison prompt...")
-    result = await real_web_summarize(
-        urls,
-        reduce=True,
-        reduction_prompt=reduction_prompt,
-        max_words_per_url=200  # Smaller for faster demo
-    )
-
-    if "combined" in result:
-        print(f"\nCombined Analysis:")
+    if "summary" in result:
+        print(f"\nURL: {result['url']}")
         print("-" * 40)
-        print(result["combined"].get("summary", "N/A"))
+        print(result["summary"])
+    elif "error" in result:
+        print(f"\nError: {result['error']}")
 
 
 async def example_config_check():
-    """Example 5: Check LLM configuration."""
+    """Example 3: Check LLM configuration."""
     print("\n" + "=" * 60)
-    print("EXAMPLE 5: LLM Configuration Status")
+    print("EXAMPLE 3: LLM Configuration Status")
     print("=" * 60)
 
     from src.mcp_server.llm import LLMManager
-    
+
     try:
         manager = LLMManager()
         providers = manager.providers
-        
+
         if providers:
             provider = providers[0]  # Primary provider
             print(f"\nLLM Provider: {provider.name}")
@@ -166,44 +103,35 @@ async def example_config_check():
 
 async def example_multi_provider_failover():
     """
-    Example 6: Multi-provider LLM failover demonstration.
-    
+    Example 4: Multi-provider LLM failover demonstration.
+
     This example shows how to configure multiple LLM providers with automatic
     failover. When the first provider fails, the system automatically tries
     the next provider in sequence.
-    
+
     Configuration via environment variables:
         # Provider 1 (Primary - highest priority)
         LLM_PROVIDER_1_NAME=primary-ollama
         LLM_PROVIDER_1_BASE_URL=http://localhost:11434/v1
         LLM_PROVIDER_1_API_KEY=
         LLM_PROVIDER_1_MODEL=llama3.2
-        
+
         # Provider 2 (Fallback)
         LLM_PROVIDER_2_NAME=secondary-ollama
         LLM_PROVIDER_2_BASE_URL=http://192.168.1.100:11434/v1
         LLM_PROVIDER_2_API_KEY=
         LLM_PROVIDER_2_MODEL=mistral
-        
+
         # Provider 3 (Last resort - could be cloud API like OpenRouter)
         LLM_PROVIDER_3_NAME=cloud-backup
         LLM_PROVIDER_3_BASE_URL=https://openrouter.ai/api/v1
         LLM_PROVIDER_3_API_KEY=sk-or-v1-...
         LLM_PROVIDER_3_MODEL=anthropic/claude-3-haiku
-    
-    How failover works:
-        1. The system tries provider 1 (primary)
-        2. If it fails (connection error, API error, timeout), it logs the error
-           and moves to provider 2
-        3. This continues through all configured providers
-        4. If ALL providers fail, LLMAllProvidersFailedError is raised with
-           details about what went wrong with each
     """
     print("\n" + "=" * 60)
-    print("EXAMPLE 6: Multi-Provider Failover Configuration")
+    print("EXAMPLE 4: Multi-Provider Failover Configuration")
     print("=" * 60)
 
-    # Import the LLM manager to check provider configuration
     from src.mcp_server.llm import LLMManager, LLMAllProvidersFailedError
 
     try:
@@ -221,7 +149,7 @@ async def example_multi_provider_failover():
         # Demonstrate failover behavior with a test prompt
         print("\n" + "-" * 40)
         print("Testing LLM completion (with potential failover)...")
-        
+
         try:
             result = await manager.complete(
                 "Say 'Hello' if you receive this.",
@@ -237,7 +165,7 @@ async def example_multi_provider_failover():
 
 async def main():
     from src.mcp_server.llm import LLMManager
-    
+
     print("\n" + "#" * 60)
     print("# web_summarize Examples (using real implementation)")
     try:
@@ -255,10 +183,8 @@ async def main():
     # await example_multi_provider_failover()
     await example_single_url()
 
-    # These take longer due to multiple LLM calls - uncomment as needed:
-    # await example_multiple_urls_reduce()
+    # This takes longer due to LLM call - uncomment as needed:
     # await example_custom_summary_prompt()
-    # await example_custom_reduction_prompt()
 
     print("\n" + "#" * 60)
     print("# Done!")

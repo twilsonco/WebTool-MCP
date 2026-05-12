@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 # Import from server module
 from src.mcp_server.server import (
     web_fetch, web_search, web_summarize, _call_llm,
-    _get_configured_providers, _generate_search_schema, _brave_freshness,
+    _get_configured_providers, _brave_freshness,
 )
 
 
@@ -23,11 +23,12 @@ class TestWebFetch:
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch(["https://example.com"])
+            result = await web_fetch("https://example.com")
 
-            assert "https://example.com" in result
+            assert "url" in result
+            assert result["url"] == "https://example.com"
             # Content should contain converted markdown from the HTML
-            content_lower = result["https://example.com"].lower()
+            content_lower = result["content"].lower()
             assert any(word in content_lower for word in ["test", "content"])
 
     @pytest.mark.asyncio
@@ -43,11 +44,12 @@ class TestWebFetch:
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch(["https://example.com"], regex="ERROR_", regex_padding=10)
+            result = await web_fetch("https://example.com", regex="ERROR_", regex_padding=10)
 
-            assert "https://example.com" in result
+            assert "url" in result
             # Should have matched content or no-match message
-            assert len(result["https://example.com"]) > 0
+            if "content" in result:
+                assert len(result["content"]) > 0
 
     @pytest.mark.asyncio
     async def test_web_fetch_word_truncation(self):
@@ -62,31 +64,10 @@ class TestWebFetch:
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch(["https://example.com"], num_words=50)
+            result = await web_fetch("https://example.com", num_words=50)
 
-            words = result["https://example.com"].split()
+            words = result["content"].split()
             assert len(words) <= 55  # Allow small margin for markdown conversion overhead
-
-    @pytest.mark.asyncio
-    async def test_web_fetch_multiple_urls(self):
-        html1, html2 = "<h1>Page One</h1>", "<h1>Page Two</h1>"
-
-        mock_response1 = MagicMock()
-        mock_response1.text = html1
-        mock_response1.raise_for_status = MagicMock()
-
-        mock_response2 = MagicMock()
-        mock_response2.text = html2
-        mock_response2.raise_for_status = MagicMock()
-
-        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
-            instance = AsyncMock()
-            instance.get.side_effect = [mock_response1, mock_response2]
-            mock_client.return_value.__aenter__.return_value = instance
-
-            result = await web_fetch(["https://example.com/1", "https://example.com/2"])
-
-            assert len(result) == 2
 
     @pytest.mark.asyncio
     async def test_web_fetch_http_error(self):
@@ -97,9 +78,9 @@ class TestWebFetch:
             instance.get.return_value = error_resp
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch(["https://example.com/notfound"])
+            result = await web_fetch("https://example.com/notfound")
 
-            assert "Error" in result["https://example.com/notfound"]
+            assert "error" in result
 
     @pytest.mark.asyncio
     async def test_web_fetch_regex_no_match(self):
@@ -114,9 +95,10 @@ class TestWebFetch:
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch(["https://example.com"], regex="NONEXISTENT_PATTERN_", regex_padding=10)
+            result = await web_fetch("https://example.com", regex="NONEXISTENT_PATTERN_", regex_padding=10)
 
-            assert "No matches found" in result["https://example.com"]
+            assert "content" in result
+            assert "No matches found" in result["content"]
 
     @pytest.mark.asyncio
     async def test_web_fetch_include_links(self):
@@ -132,16 +114,15 @@ class TestWebFetch:
             mock_client.return_value.__aenter__.return_value = instance
 
             # With include_links=True, anchor tags should be preserved
-            result_with = await web_fetch(["https://example.com"], include_links=True)
+            result_with = await web_fetch("https://example.com", include_links=True)
             # With include_links=False (default), anchor tags are unwrapped
-            result_without = await web_fetch(["https://example.com"], include_links=False)
+            result_without = await web_fetch("https://example.com", include_links=False)
 
-        # With links, markdown should contain URLs (http style)
-        content_with = result_with["https://example.com"]
-        content_without = result_without["https://example.com"]
-        # include_links=True preserves anchor structure; include_links=False unwraps
-        assert "https://example.com" in result_with
-        assert "https://example.com" in result_without
+        # Both should return valid results with url and content
+        assert "url" in result_with
+        assert "content" in result_with
+        assert "url" in result_without
+        assert "content" in result_without
 
     @pytest.mark.asyncio
     async def test_web_fetch_start_word_pagination(self):
@@ -157,12 +138,12 @@ class TestWebFetch:
             mock_client.return_value.__aenter__.return_value = instance
 
             # Page 1: words 0-9
-            result_page1 = await web_fetch(["https://example.com"], start_word=0, num_words=10)
+            result_page1 = await web_fetch("https://example.com", start_word=0, num_words=10)
             # Page 2: words 50-59
-            result_page2 = await web_fetch(["https://example.com"], start_word=50, num_words=10)
+            result_page2 = await web_fetch("https://example.com", start_word=50, num_words=10)
 
-        content_page1 = result_page1["https://example.com"]
-        content_page2 = result_page2["https://example.com"]
+        content_page1 = result_page1["content"]
+        content_page2 = result_page2["content"]
         # The two pages should contain different content
         assert content_page1 != content_page2
 
@@ -181,12 +162,12 @@ class TestWebFetch:
             mock_client.return_value.__aenter__.return_value = instance
 
             # Small padding: minimal context around match
-            result_small = await web_fetch(["https://example.com"], regex="CRITICAL", regex_padding=5)
+            result_small = await web_fetch("https://example.com", regex="CRITICAL", regex_padding=5)
             # Large padding: more context around match
-            result_large = await web_fetch(["https://example.com"], regex="CRITICAL", regex_padding=100)
+            result_large = await web_fetch("https://example.com", regex="CRITICAL", regex_padding=100)
 
-        content_small = result_small["https://example.com"]
-        content_large = result_large["https://example.com"]
+        content_small = result_small["content"]
+        content_large = result_large["content"]
         # Both should match (not "No matches found")
         assert "No matches" not in content_small
         assert "No matches" not in content_large
@@ -211,12 +192,11 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test query", "provider": "tavily"}])
+                result = await web_search("test query", provider="tavily")
 
-                assert len(result) == 1
-                assert result[0]["provider"] == "tavily"
-                assert len(result[0]["results"]) == 1
-                assert result[0]["results"][0]["title"] == "Test Result"
+                assert result["provider"] == "tavily"
+                assert len(result["results"]) == 1
+                assert result["results"][0]["title"] == "Test Result"
 
     @pytest.mark.asyncio
     async def test_search_tavily_no_api_key(self):
@@ -230,15 +210,11 @@ class TestWebSearch:
                 return default
             mock_getenv.side_effect = get_env
 
-            result = await web_search([{"query": "test", "provider": "tavily"}])
+            result = await web_search("test", provider="tavily")
 
-            assert len(result) == 1
             # With miklium always available, the search should still run via failover
-            # If it gets an error, it's because all non-miklium providers failed
-            # and miklium was attempted but failed (e.g., network error in mock)
-            r = result[0]
-            if "error" in r:
-                assert "not configured" in r["error"] or "failed" in r["error"].lower()
+            if "error" in result:
+                assert "not configured" in result["error"] or "failed" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_search_brave_success(self):
@@ -260,11 +236,10 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "brave"}])
+                result = await web_search("test", provider="brave")
 
-                assert len(result) == 1
-                assert result[0]["provider"] == "brave"
-                assert len(result[0]["results"]) == 1
+                assert result["provider"] == "brave"
+                assert len(result["results"]) == 1
 
     @pytest.mark.asyncio
     async def test_search_google_success(self):
@@ -290,23 +265,20 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "google"}])
+                result = await web_search("test", provider="google")
 
-                assert len(result) == 1
-                assert result[0]["provider"] == "google"
-                assert len(result[0]["results"]) == 1
-                assert result[0]["results"][0]["url"] == "https://google.example.com"
+                assert result["provider"] == "google"
+                assert len(result["results"]) == 1
+                assert result["results"][0]["url"] == "https://google.example.com"
 
     @pytest.mark.asyncio
     async def test_search_unknown_provider(self):
         with patch("src.mcp_server.server.os.getenv") as mock_getenv:
             # Return a fake key so at least one provider is "configured"
             mock_getenv.return_value = "fake_key"
-            result = await web_search([{"query": "test", "provider": "unknown"}])
+            result = await web_search("test", provider="unknown")
 
-            assert len(result) == 1
             # With unknown provider, it should try configured providers and fail or use failover
-            # The exact behavior depends on what providers are "configured" via mock
 
     @pytest.mark.asyncio
     async def test_search_api_error_handling(self):
@@ -329,11 +301,10 @@ class TestWebSearch:
                 instance.get.return_value = get_error
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "tavily"}])
+                result = await web_search("test", provider="tavily")
 
-                assert len(result) == 1
                 # Either error in the result directly or failover_attempts with errors
-                has_error = "error" in result[0] or ("failover_attempts" in result[0] and any("error" in a for a in result[0]["failover_attempts"]))
+                has_error = "error" in result or ("failover_attempts" in result and any("error" in a for a in result["failover_attempts"]))
                 assert has_error
 
     @pytest.mark.asyncio
@@ -348,14 +319,12 @@ class TestWebSearch:
                 return default
             mock_getenv.side_effect = get_env
 
-            result = await web_search([{"query": "test", "provider": "brave"}])
+            result = await web_search("test", provider="brave")
 
-            assert len(result) == 1
             # With miklium always available, brave-specific key not being set means
             # it fails over to miklium
-            r = result[0]
-            if "error" in r:
-                assert "configured" in r["error"] or "failed" in r["error"].lower()
+            if "error" in result:
+                assert "configured" in result["error"] or "failed" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_search_google_no_credentials(self):
@@ -369,14 +338,12 @@ class TestWebSearch:
                 return default
             mock_getenv.side_effect = get_env
 
-            result = await web_search([{"query": "test", "provider": "google"}])
+            result = await web_search("test", provider="google")
 
-            assert len(result) == 1
             # With miklium always available, google-specific keys not being set means
             # it fails over to miklium
-            r = result[0]
-            if "error" in r:
-                assert "configured" in r["error"] or "failed" in r["error"].lower()
+            if "error" in result:
+                assert "configured" in result["error"] or "failed" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_search_result_count(self):
@@ -397,11 +364,10 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "tavily", "num_results": 3}])
+                result = await web_search("test", provider="tavily", num_results=3)
 
-                assert len(result) == 1
                 # Should be limited to requested count (max 20, but we asked for 3)
-                assert len(result[0]["results"]) <= 3
+                assert len(result["results"]) <= 3
 
     @pytest.mark.asyncio
     async def test_search_miklium_success(self):
@@ -427,11 +393,10 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test query"}])
+                result = await web_search("test query")
 
-                assert len(result) == 1
-                assert result[0]["provider"] == "miklium"
-                assert len(result[0]["results"]) >= 1
+                assert result["provider"] == "miklium"
+                assert len(result["results"]) >= 1
 
     @pytest.mark.asyncio
     async def test_search_miklium_api_error(self):
@@ -451,54 +416,19 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test"}])
+                result = await web_search("test")
 
-                assert len(result) == 1
-                assert "error" in result[0]
-
-    @pytest.mark.asyncio
-    async def test_search_miklium_batched_queries(self):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "success": True,
-            "results": [
-                {"url": f"https://example.com/{i}", "snippet": f"Result {i}"}
-                for i in range(6)
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("src.mcp_server.server.os.getenv") as mock_getenv:
-            def get_env(key, default=None):
-                if key in ("TAVILY_API_KEY", "BRAVE_API_KEY", "GOOGLE_API_KEY"):
-                    return None
-                return default
-            mock_getenv.side_effect = get_env
-
-            with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
-                instance = AsyncMock()
-                instance.post.return_value = mock_response
-                mock_client.return_value.__aenter__.return_value = instance
-
-                # Multiple miklium queries in one call
-                result = await web_search([
-                    {"query": "python"},
-                    {"query": "javascript"},
-                ])
-
-                assert len(result) == 2
-                assert all(r["provider"] == "miklium" for r in result)
+                assert "error" in result
 
     @pytest.mark.asyncio
     async def test_search_empty_query(self):
         with patch("src.mcp_server.server.os.getenv") as mock_getenv:
             mock_getenv.return_value = "fake_key"
 
-            result = await web_search([{"query": ""}])
+            result = await web_search("")
 
-        assert len(result) == 1
-        assert "error" in result[0]
-        assert "Missing required field: query" in result[0]["error"]
+        assert "error" in result
+        assert "Missing required field: query" in result["error"]
 
     @pytest.mark.asyncio
     async def test_search_tavily_with_days(self):
@@ -518,9 +448,8 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "tavily", "days": 7}])
+                result = await web_search("test", provider="tavily", days=7)
 
-                assert len(result) == 1
                 # Verify the payload included start_date (computed from days)
                 call_args = instance.post.call_args
                 json_payload = call_args.kwargs["json"]
@@ -544,7 +473,7 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "tavily", "days": 0}])
+                result = await web_search("test", provider="tavily", days=0)
 
                 call_args = instance.post.call_args
                 json_payload = call_args.kwargs["json"]
@@ -571,9 +500,8 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "brave", "offset": 10}])
+                result = await web_search("test", provider="brave", offset=10)
 
-                assert len(result) == 1
                 # Verify offset was passed to the API call
                 call_args = instance.get.call_args
                 params = call_args.kwargs["params"]
@@ -613,76 +541,17 @@ class TestWebSearch:
                 instance.post.side_effect = [tavily_error, miklium_response]
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "tavily"}])
+                result = await web_search("test", provider="tavily")
 
-                assert len(result) == 1
                 # Should either failover to miklium or report error with failover_attempts
-                r = result[0]
-                if "results" in r and len(r["results"]) > 0:
-                    assert r.get("provider") == "miklium" or r.get("failover_attempts")
+                if "results" in result and len(result["results"]) > 0:
+                    assert result.get("provider") == "miklium" or result.get("failover_attempts")
                 else:
-                    assert "error" in r or "failover_attempts" in r
-
-    @pytest.mark.asyncio
-    async def test_search_multiple_providers_in_one_call(self):
-        """Test sending searches for different providers in one API call."""
-        tavily_response = MagicMock()
-        tavily_response.json.return_value = {
-            "results": [{"title": "Tavily", "url": "https://t.com", "content": "C"}]
-        }
-        tavily_response.raise_for_status = MagicMock()
-
-        brave_response = MagicMock()
-        brave_response.json.return_value = {
-            "web": {"results": [{"title": "Brave", "url": "https://b.com", "description": "D"}]}
-        }
-        brave_response.raise_for_status = MagicMock()
-
-        miklium_response = MagicMock()
-        miklium_response.json.return_value = {
-            "success": True,
-            "results": [{"url": "https://m.com", "snippet": "M"}]
-        }
-        miklium_response.raise_for_status = MagicMock()
-
-        with patch("src.mcp_server.server.os.getenv") as mock_getenv:
-            def get_env(key, default=None):
-                if key == "TAVILY_API_KEY":
-                    return "fake_tavily"
-                if key == "BRAVE_API_KEY":
-                    return "fake_brave"
-                return default
-            mock_getenv.side_effect = get_env
-
-            with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
-                instance = AsyncMock()
-                # miklium POST, then tavily POST, then brave GET
-                instance.post.side_effect = [miklium_response, tavily_response]
-                instance.get.return_value = brave_response
-                mock_client.return_value.__aenter__.return_value = instance
-
-                result = await web_search([
-                    {"query": "python", "provider": "miklium"},
-                    {"query": "javascript", "provider": "tavily"},
-                    {"query": "rust", "provider": "brave"},
-                ])
-
-                assert len(result) == 3
+                    assert "error" in result or "failover_attempts" in result
 
     @pytest.mark.asyncio
     async def test_search_no_providers_configured(self):
         """Test when no search providers are configured at all."""
-        with patch("src.mcp_server.server.os.getenv") as mock_getenv:
-            def get_env(key, default=None):
-                if key in ("TAVILY_API_KEY", "BRAVE_API_KEY", "GOOGLE_API_KEY", "GOOGLE_SEARCH_ENGINE_ID"):
-                    return None
-                # For miklium, the URL is hardcoded so we need to handle it differently
-                # Actually miklium is always available, but this test checks the path
-                return default
-            mock_getenv.side_effect = get_env
-
-        # Miklium is always available, so requesting an unconfigured provider
-        # should still have miklium as a failover option. Test the "unknown" path.
         with patch("src.mcp_server.server.os.getenv") as mock_getenv:
             def get_env(key, default=None):
                 if key in ("TAVILY_API_KEY", "BRAVE_API_KEY", "GOOGLE_API_KEY"):
@@ -690,9 +559,8 @@ class TestWebSearch:
                 return default
             mock_getenv.side_effect = get_env
 
-            result = await web_search([{"query": "test", "provider": "unknown"}])
+            result = await web_search("test", provider="unknown")
 
-        assert len(result) == 1
         # Unknown provider should not be in configured_providers, so it gets skipped
         # and failover to miklium should work or produce an error
 
@@ -730,15 +598,13 @@ class TestWebSearch:
                 instance.get.return_value = brave_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "tavily"}])
+                result = await web_search("test", provider="tavily")
 
-                assert len(result) == 1
-                r = result[0]
                 # Should have results (from failover to brave or miklium)
-                if "results" in r and len(r["results"]) > 0:
+                if "results" in result and len(result["results"]) > 0:
                     # If it succeeded after failover, check for failover_attempts
-                    if "failover_attempts" in r:
-                        assert len(r["failover_attempts"]) > 0
+                    if "failover_attempts" in result:
+                        assert len(result["failover_attempts"]) > 0
 
     @pytest.mark.asyncio
     async def test_search_tavily_not_configured_direct(self):
@@ -765,13 +631,10 @@ class TestWebSearch:
                 instance.get.return_value = get_error
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "tavily"}])
+                result = await web_search("test", provider="tavily")
 
-        assert len(result) == 1
-        # Should have error in result (either "not configured" or all failed)
-        r = result[0]
-        has_error = "error" in r
-        assert has_error
+        # Should have error in result
+        assert "error" in result
 
     @pytest.mark.asyncio
     async def test_search_brave_with_days_freshness(self):
@@ -790,7 +653,7 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "brave", "days": 7}])
+                result = await web_search("test", provider="brave", days=7)
 
                 call_args = instance.get.call_args
                 params = call_args.kwargs["params"]
@@ -820,7 +683,7 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test", "provider": "google", "offset": 5}])
+                result = await web_search("test", provider="google", offset=5)
 
                 call_args = instance.get.call_args
                 params = call_args.kwargs["params"]
@@ -829,13 +692,13 @@ class TestWebSearch:
                 assert params["start"] == 6
 
     @pytest.mark.asyncio
-    async def test_search_miklium_empty_queries(self):
-        """Test _search_miklium with empty queries list."""
+    async def test_search_miklium_empty_query(self):
+        """Test _search_miklium with empty query string."""
         from src.mcp_server.server import _search_miklium
 
-        result = await _search_miklium([], 10)
-
-        assert result == {"count": 0, "results": []}
+        result = await _search_miklium("test query", 10)
+        # Should succeed (empty string would be caught by web_search, not _search_miklium)
+        assert "error" in result or "results" in result
 
     @pytest.mark.asyncio
     async def test_search_tavily_direct_not_configured(self):
@@ -910,13 +773,11 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search([{"query": "test"}])
+                result = await web_search("test")
 
-        assert len(result) == 1
-        r = result[0]
         # Should produce an error about miklium failure
-        if "error" in r:
-            assert "MIKLIUM" in r["error"] or "failed" in r.get("error", "").lower()
+        if "error" in result:
+            assert "MIKLIUM" in result["error"] or "failed" in result.get("error", "").lower()
 
     @pytest.mark.asyncio
     async def test_search_no_preferred_uses_all_configured(self):
@@ -945,9 +806,8 @@ class TestWebSearch:
                 mock_client.return_value.__aenter__.return_value = instance
 
                 # No provider specified - defaults to miklium (first configured)
-                result = await web_search([{"query": "test"}])
+                result = await web_search("test")
 
-        assert len(result) == 1
         # Default search goes to miklium since it's first in configured providers
 
     @pytest.mark.asyncio
@@ -958,16 +818,14 @@ class TestWebSearch:
             # but we test the defensive code path)
             mock_prov.return_value = []
 
-            result = await web_search([{"query": "test", "provider": "tavily"}])
+            result = await web_search("test", provider="tavily")
 
-        assert len(result) == 1
-        r = result[0]
         # Should produce error since no providers available for non-miklium search
-        assert "error" in r or ("results" not in r)
+        assert "error" in result or ("results" not in result)
 
     @pytest.mark.asyncio
     async def test_search_unknown_provider_in_failover_loop(self):
-        """Test that an unknown provider name is skipped in the failover loop (line 212)."""
+        """Test that an unknown provider name is skipped in the failover loop."""
         # This tests when a provider name appears in configured_providers but
         # doesn't match any known handler in the failover loop.
         with patch("src.mcp_server.server._get_configured_providers") as mock_prov:
@@ -984,14 +842,14 @@ class TestWebSearch:
                 instance.get.return_value = MagicMock()
                 mock_client.return_value.__aenter__.return_value = instance
 
-                # Request miklium specifically (will fail), then failover hits fake_provider
-                result = await web_search([{"query": "test", "provider": "fake_provider"}])
+                # Request fake_provider specifically (will fail), then failover hits it
+                result = await web_search("test", provider="fake_provider")
 
-        assert len(result) == 1
+        # Should produce an error since fake_provider has no handler
 
     @pytest.mark.asyncio
     async def test_search_empty_query_non_miklium(self):
-        """Test empty query on a non-miklium provider search (line 173 continue)."""
+        """Test empty query on a non-miklium provider search."""
         with patch("src.mcp_server.server.os.getenv") as mock_getenv:
             def get_env(key, default=None):
                 if key == "TAVILY_API_KEY":
@@ -1000,14 +858,11 @@ class TestWebSearch:
             mock_getenv.side_effect = get_env
 
             # Search with explicit non-miklium provider but empty query
-            result = await web_search([
-                {"query": "", "provider": "tavily"}
-            ])
+            result = await web_search("", provider="tavily")
 
         # The empty query should produce a "Missing required field: query" error
-        assert len(result) == 1
-        assert "error" in result[0]
-        assert "Missing required field: query" in result[0]["error"]
+        assert "error" in result
+        assert "Missing required field: query" in result["error"]
 
 
 class TestBraveFreshness:
@@ -1103,196 +958,78 @@ class TestGetConfiguredProviders:
             assert providers == ["miklium", "tavily"]
 
 
-class TestGenerateSearchSchema:
-    def test_schema_with_no_providers(self):
-        with patch("src.mcp_server.server._get_configured_providers") as mock_providers:
-            mock_providers.return_value = []
-            schema = _generate_search_schema()
-            assert "searches" in schema
-            properties = schema["searches"]["items"]["properties"]
-            # Default to tavily when no providers configured (fallback)
-            assert "tavily" in properties["provider"]["enum"]
-
-    def test_schema_with_configured_providers(self):
-        with patch("src.mcp_server.server._get_configured_providers") as mock_providers:
-            mock_providers.return_value = ["miklium", "tavily", "brave"]
-            schema = _generate_search_schema()
-            properties = schema["searches"]["items"]["properties"]
-            assert properties["provider"]["enum"] == ["miklium", "tavily", "brave"]
-            assert properties["provider"]["default"] == "miklium"
-
-    def test_schema_default_provider_is_first_configured(self):
-        with patch("src.mcp_server.server._get_configured_providers") as mock_providers:
-            mock_providers.return_value = ["miklium"]
-            schema = _generate_search_schema()
-            properties = schema["searches"]["items"]["properties"]
-            assert properties["provider"]["default"] == "miklium"
-
-
 class TestWebSummarize:
     @pytest.mark.asyncio
     async def test_summarize_single_url(self):
-        fetch_result = {"https://example.com": "This is the actual content from the webpage with details."}
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "## Summary\n\nKey points extracted."}}]
-        }
-        mock_response.raise_for_status = MagicMock()
+        fetch_result = {"url": "https://example.com", "content": "This is the actual content from the webpage with details."}
 
         with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="## Summary\n\nKey points extracted.")):
-                result = await web_summarize(["https://example.com"])
+                result = await web_summarize("https://example.com")
 
-                assert "summaries" in result
-                assert "https://example.com" in result["summaries"]
-                summary_data = result["summaries"]["https://example.com"]
-                if "summary" in summary_data:
-                    assert len(summary_data["summary"]) > 0
-
-    @pytest.mark.asyncio
-    async def test_summarize_with_reduce(self):
-        fetch_result = {
-            "url1": "Content from first source.",
-            "url2": "Content from second source."
-        }
-
-        async def mock_llm(prompt, system_prompt=None):
-            if "Summarize the following" in prompt:
-                return f"Summary for {prompt[:20]}..."
-            else:
-                return "## Combined Overview\n\nSynthesized findings from both sources."
-
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
-            with patch("src.mcp_server.server._call_llm", side_effect=mock_llm):
-                result = await web_summarize(["url1", "url2"], reduce=True)
-
-                assert "summaries" in result
-                assert "combined" in result
-                if "summary" in result["combined"]:
-                    assert len(result["combined"]["summary"]) > 0
+                assert "url" in result
+                assert result["url"] == "https://example.com"
+                if "summary" in result:
+                    assert len(result["summary"]) > 0
 
     @pytest.mark.asyncio
-    async def test_summarize_custom_prompts(self):
-        fetch_result = {"https://example.com": "Content for custom analysis."}
+    async def test_summarize_custom_prompt(self):
+        fetch_result = {"url": "https://example.com", "content": "Content for custom analysis."}
 
         with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Custom summary")):
                 result = await web_summarize(
-                    ["https://example.com"],
-                    summary_prompt="Focus on technical specifications only.",
-                    reduce=False
+                    "https://example.com",
+                    summary_prompt="Focus on technical specifications only."
                 )
 
-                assert "summaries" in result
-                # Should still use the default prompt or custom
-                assert isinstance(result["summaries"], dict)
+                assert "url" in result
+                # Should still use the custom prompt or default
 
     @pytest.mark.asyncio
     async def test_summarize_fetch_error(self):
-        fetch_result = {"https://error.com": "Error: Failed to connect to server"}
+        fetch_result = {"url": "https://error.com", "error": "Error: Failed to connect to server"}
 
         with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
-            result = await web_summarize(["https://error.com"])
+            result = await web_summarize("https://error.com")
 
-            assert "summaries" in result
-            summary_data = result["summaries"]["https://error.com"]
-            # Error content should be captured as dict with error key
-            assert isinstance(summary_data, dict) or "Error:" in str(summary_data)
+            assert "url" in result
+            # Error content should be captured with error key
+            assert "error" in result
 
     @pytest.mark.asyncio
     async def test_summarize_llm_error_handling(self):
-        fetch_result = {"https://example.com": "Normal content here."}
+        fetch_result = {"url": "https://example.com", "content": "Normal content here."}
 
         async def mock_llm_error(prompt, system_prompt=None):
             raise RuntimeError("LLM API Error: 503 Service Unavailable")
 
         with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", side_effect=mock_llm_error):
-                result = await web_summarize(["https://example.com"])
+                result = await web_summarize("https://example.com")
 
-                summary_data = result["summaries"]["https://example.com"]
-                assert "error" in summary_data or isinstance(summary_data, dict)
-
-    @pytest.mark.asyncio
-    async def test_summarize_empty_urls(self):
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value={})):
-            result = await web_summarize([], reduce=True)
-
-            # Empty URL list should still return valid structure
-            assert "summaries" in result
-            assert len(result["summaries"]) == 0
+                assert "error" in result
 
     @pytest.mark.asyncio
     async def test_summarize_max_words(self):
-        fetch_result = {"https://example.com": "x " * 1500}
+        fetch_result = {"url": "https://example.com", "content": "x " * 1500}
 
         with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Summary")):
-                result = await web_summarize(["https://example.com"], max_words_per_url=100)
+                result = await web_summarize("https://example.com", max_words_per_url=100)
 
-                assert "summaries" in result
-
-    @pytest.mark.asyncio
-    async def test_summarize_with_reduction_prompt(self):
-        fetch_result = {"u1": "C1", "u2": "C2"}
-
-        async def mock_llm(prompt, system_prompt=None):
-            return f"Synthesized with custom prompt: {system_prompt[:30] if system_prompt else 'none'}"
-
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
-            with patch("src.mcp_server.server._call_llm", side_effect=mock_llm):
-                result = await web_summarize(
-                    ["u1", "u2"],
-                    reduce=True,
-                    reduction_prompt="Provide a competitive analysis format."
-                )
-
-                assert "combined" in result
-
-    @pytest.mark.asyncio
-    async def test_summarize_single_url_reduce_skips_combined(self):
-        fetch_result = {"https://example.com": "Content here."}
-
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
-            with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Summary")):
-                result = await web_summarize(["https://example.com"], reduce=True)
-
-        # reduce=True with only 1 URL should NOT produce "combined"
-        assert "summaries" in result
-        assert "combined" not in result
+                assert "url" in result
 
     @pytest.mark.asyncio
     async def test_summarize_no_matches_content(self):
-        fetch_result = {"https://example.com": "No matches found for regex."}
+        fetch_result = {"url": "https://example.com", "content": "No matches found for regex."}
 
         with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
-            result = await web_summarize(["https://example.com"])
+            result = await web_summarize("https://example.com")
 
-        assert "summaries" in result
-        summary_data = result["summaries"]["https://example.com"]
+        assert "url" in result
         # "No matches" content should be captured as error
-        assert isinstance(summary_data, dict)
-        assert "error" in summary_data
-
-    @pytest.mark.asyncio
-    async def test_summarize_reduction_llm_error(self):
-        fetch_result = {"u1": "C1", "u2": "C2"}
-
-        async def mock_llm(prompt, system_prompt=None):
-            if "Summarize the following" in prompt:
-                return "Summary for this URL"
-            # Reduction step fails
-            raise RuntimeError("Reduction LLM failed")
-
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
-            with patch("src.mcp_server.server._call_llm", side_effect=mock_llm):
-                result = await web_summarize(["u1", "u2"], reduce=True)
-
-        assert "summaries" in result
-        # Combined should have error, not crash
-        assert "combined" in result
-        assert "error" in result["combined"]
+        assert "error" in result
 
 
 class TestCallLLM:

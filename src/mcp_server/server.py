@@ -1,4 +1,3 @@
-import asyncio
 import os
 import re
 from datetime import datetime, timedelta
@@ -85,201 +84,100 @@ def _get_configured_providers() -> list[str]:
     return providers
 
 
-def _generate_search_schema() -> dict:
-    """
-    Generate the dynamic schema for web_search tool based on configured providers.
-    Only includes provider enum values that are actually configured.
-    MIKLIUM is always available as default since it requires no API key.
-    """
-    configured = _get_configured_providers()
-    
-    # Default to miklium (always available) if no providers configured
-    default_provider = configured[0] if configured else "miklium"
-    
-    return {
-        "searches": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "provider": {
-                        "type": "string",
-                        "enum": configured if configured else ["tavily"],
-                        "default": default_provider
-                    },
-                    "num_results": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10},
-                    "days": {"type": "integer", "minimum": 0, "default": 0},
-                    "offset": {"type": "integer", "minimum": 0, "default": 0}
-                },
-                "required": ["query"]
-            }
-        }
-    }
-
-
 # Note: FastMCP derives input schema from type hints.
-# Provider enum values are determined at module load time via _get_configured_providers().
-# Runtime validation + failover ensures invalid providers fail over to configured ones.
-
-AVAILABLE_PROVIDERS = _get_configured_providers()
+# Provider validation + failover ensures invalid providers fail over to configured ones.
 
 
 @mcp.tool()
-async def web_search(searches: list[dict]) -> list[dict]:
+async def web_search(
+    query: str,
+    provider: Optional[str] = None,
+    num_results: int = 10,
+    days: int = 0,
+    offset: int = 0
+) -> dict:
     """
-    Execute one or more web searches using configured providers with automatic failover.
+    Execute a web search using configured providers with automatic failover.
 
     When a provider fails (not configured or API error), automatically tries the next
-    available configured provider. Priority order: tavily > brave > google.
+    available configured provider. Priority order: miklium > tavily > brave > google.
 
     Args:
-        searches: List of search specifications. Each dict supports:
-            - query (str): The search query string (required)
-            - provider (str): Preferred provider to use: "tavily", "brave", or "google"
-                            Only configured providers are valid. If not specified, uses
-                            the first available provider with failover support.
-            - num_results (int): Number of results to return (default: 10, max: 20)
-            - days (int): Filter results to the last N days. 0 means no date filtering.
-                         Only supported for brave/tavily; ignored for google.
-            - offset (int): Starting index for pagination. Only supported for brave/google;
-                           tavily does not support offsets.
+        query: The search query string (required)
+        provider: Preferred provider to use. Only configured providers are valid.
+                 If not specified, uses the first available provider with failover support.
+        num_results: Number of results to return (default: 10, max: 20)
+        days: Filter results to the last N days. 0 means no date filtering.
+              Only supported for brave/tavily; ignored for google and miklium.
+        offset: Starting index for pagination. Only supported for brave/google;
+               tavily and miklium do not support offsets.
 
     Returns:
-        List of results, one per search spec:
-        [{"query": "...", "provider": "...", "results": [...], "failover_attempts": [...]}, ...]
-        Errors are included inline: {"query": "...", "error": "...", "provider": "...", "failover_attempts": [...]}
+        Dict with query, provider, results, and optionally failover_attempts.
+        Errors are included inline: {"query": "...", "error": "...", ...}
     """
+    if not query:
+        return {"query": "", "provider": provider or "miklium", "error": "Missing required field: query"}
+
     configured_providers = _get_configured_providers()
-    results = []
-    
-    # Separate miklium searches from others (for batching)
-    miklium_searches = []
-    other_searches = []
-    
-    for idx, search_spec in enumerate(searches):
-        query = search_spec.get("query", "")
-        if not query:
-            continue  # Will handle below
-        preferred = search_spec.get("provider")
-        if preferred == "miklium" or (not preferred and configured_providers and configured_providers[0] == "miklium"):
-            miklium_searches.append((idx, search_spec))
-        else:
-            other_searches.append((idx, search_spec))
-    
-    # Handle empty queries
-    for idx, search_spec in enumerate(searches):
-        if not search_spec.get("query", ""):
-            results.append({"error": "Missing required field: query"})
-    
-    # Batch all miklium queries into a single call
-    if miklium_searches:
-        miklium_queries = [s[1].get("query", "") for s in miklium_searches]
-        num_results = min(miklium_searches[0][1].get("num_results", 10), 20) if miklium_searches else 10
-        
-        # Call miklium with batched queries
-        miklium_result = await _search_miklium(miklium_queries, num_results)
-        
-        if "error" in miklium_result:
-            # All miklium searches failed
-            for idx, search_spec in miklium_searches:
-                results.append({
-                    "query": search_spec.get("query", ""),
-                    "provider": "miklium",
-                    "error": miklium_result["error"]
-                })
-        else:
-            # Distribute combined results to each miklium search
-            for idx, search_spec in miklium_searches:
-                normalized = {
-                    "query": search_spec.get("query", ""),
-                    "provider": "miklium",
-                    "results": [
-                        {"title": r.get("title", ""), "url": r["url"], "snippet": r.get("description", "")}
-                        for r in miklium_result.get("results", [])
-                    ]
-                }
-                results.append(normalized)
-    
-    # Process non-miklium searches individually
-    for idx, search_spec in other_searches:
-        query = search_spec.get("query", "")
-        if not query:
-            continue  # pragma: no cover - defensive guard; empty queries are filtered before this loop
+    num_results = min(num_results, 20)
 
-        preferred_provider = search_spec.get("provider")
-        num_results = min(search_spec.get("num_results", 10), 20)
-        days = search_spec.get("days", 0) or 0
-        offset = search_spec.get("offset") or 0
+    # Determine provider order: preferred first, then failover chain
+    if provider and provider in configured_providers:
+        provider_order = [provider] + [p for p in configured_providers if p != provider]
+    elif configured_providers:
+        provider_order = configured_providers[:]
+    else:
+        return {
+            "query": query,
+            "provider": provider or "miklium",
+            "error": "No search providers configured. Set TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY+GOOGLE_SEARCH_ENGINE_ID in .env"
+        }
 
-        # Determine provider order: preferred first, then failover chain
-        if preferred_provider and preferred_provider in configured_providers:
-            # Use preferred as first, then rest of configured providers (excluding preferred)
-            provider_order = [preferred_provider] + [
-                p for p in configured_providers if p != preferred_provider
-            ]
-        elif configured_providers:
-            # No valid preferred specified, use all configured in priority order
-            provider_order = configured_providers[:]
+    failover_attempts = []
+    final_result = None
+    final_provider = None
+
+    for p in provider_order:
+        if p == "miklium":
+            result = await _search_miklium(query, num_results)
+        elif p == "tavily":
+            result = await _search_tavily(query, num_results, days=days)
+        elif p == "brave":
+            result = await _search_brave(query, num_results, days=days, offset=offset)
+        elif p == "google":
+            result = await _search_google(query, num_results, offset=offset)
         else:
-            results.append({
-                "query": query,
-                "provider": preferred_provider or "tavily",
-                "error": "No search providers configured. Set TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY+GOOGLE_SEARCH_ENGINE_ID in .env"
-            })
             continue
 
-        # Try each provider in order until one succeeds (skip miklium since already handled)
-        failover_attempts = []
-        final_result = None
-        final_provider = None
-
-        for provider in provider_order:
-            if provider == "miklium":
-                continue  # Already processed above
-            elif provider == "tavily":
-                result = await _search_tavily(query, num_results, days=days)
-            elif provider == "brave":
-                result = await _search_brave(query, num_results, days=days, offset=offset)
-            elif provider == "google":
-                result = await _search_google(query, num_results, offset=offset)
-            else:
-                continue
-
-            # Record this attempt
-            if "error" in result:
-                failover_attempts.append({"provider": provider, "error": result["error"]})
-            else:
-                # Success!
-                final_result = result
-                final_provider = provider
-                break
-
-        # Build response
-        if final_result is not None:
-            normalized = {
-                "query": query,
-                "provider": final_provider,
-                "results": [
-                    {"title": r.get("title", ""), "url": r["url"], "snippet": r.get("description", "")}
-                    for r in final_result.get("results", [])
-                ]
-            }
-            if failover_attempts:
-                normalized["failover_attempts"] = failover_attempts
-            results.append(normalized)
+        if "error" in result:
+            failover_attempts.append({"provider": p, "error": result["error"]})
         else:
-            # All providers failed
-            error_response = {
-                "query": query,
-                "provider": provider_order[0] if provider_order else preferred_provider or "tavily",
-                "error": f"All search providers failed. Last error: {failover_attempts[-1]['error'] if failover_attempts else 'Unknown'}"
-            }
-            if failover_attempts:
-                error_response["failover_attempts"] = failover_attempts
-            results.append(error_response)
+            final_result = result
+            final_provider = p
+            break
 
-    return results
+    if final_result is not None:
+        normalized = {
+            "query": query,
+            "provider": final_provider,
+            "results": [
+                {"title": r.get("title", ""), "url": r["url"], "snippet": r.get("description", "")}
+                for r in final_result.get("results", [])
+            ]
+        }
+        if failover_attempts:
+            normalized["failover_attempts"] = failover_attempts
+        return normalized
+    else:
+        error_response = {
+            "query": query,
+            "provider": provider_order[0] if provider_order else provider or "miklium",
+            "error": f"All search providers failed. Last error: {failover_attempts[-1]['error'] if failover_attempts else 'Unknown'}"
+        }
+        if failover_attempts:
+            error_response["failover_attempts"] = failover_attempts
+        return error_response
 
 
 async def _search_tavily(query: str, num_results: int, days: int = 0) -> dict:
@@ -390,89 +288,52 @@ async def _search_google(query: str, num_results: int, offset: int = 0) -> dict:
         return {"error": f"Google search failed: {str(e)}"}
 
 
-async def _search_miklium(queries: list[str], num_results: int) -> dict:
+async def _search_miklium(query: str, num_results: int) -> dict:
     """
     Search using the MIKLIUM API (free, no API key required).
-    
-    Batches multiple queries into single API requests. The MIKLIUM API accepts
-    maximum 3 searches per request in the "search" array parameter.
-    
+
     Args:
-        queries: List of search query strings
-        num_results: Number of results to return per query
-    
+        query: Search query string
+        num_results: Number of results to return
+
     Returns:
-        Dict with "count" (total across all queries) and "results" on success,
+        Dict with "count" and "results" on success,
         or {"error": "..."} on failure.
     """
-    if not queries:
-        return {"count": 0, "results": []}
-    
-    # Calculate snippet counts based on num_results
-    # Use more small snippets (short type) as they're typically more numerous
     max_small = min(num_results, 5)
     max_large = min(max(1, num_results // 3), 2)
-    
-    async def _search_batch(batch: list[str]) -> dict:
-        """Execute a single batch of queries against the MIKLIUM API."""
-        payload = {
-            "search": batch,
-            "maxSmallSnippets": max_small,
-            "maxLargeSnippets": max_large
-        }
-        
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    "https://miklium.vercel.app/api/search",
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                resp.raise_for_status()
-                data = resp.json()
-            
-            if not data.get("success", False):
-                return {"error": f"MIKLIUM search failed: {data.get('error', 'Unknown error')}"}
-            
-            results = []
-            for r in data.get("results", [])[:num_results * len(batch)]:
-                snippet = r.get("snippet", "")
-                # MIKLIUM doesn't provide separate title, use snippet as title
-                # Truncate to reasonable length for consistency with other providers
-                results.append({
-                    "title": snippet[:100] if snippet else "",
-                    "url": r.get("url", ""),
-                    "description": snippet[:200] if snippet else ""
-                })
-            
-            return {"count": len(results), "results": results}
-        except Exception as e:
-            return {"error": f"MIKLIUM search failed: {str(e)}"}
-    
-    # Batch queries into groups of 3 (API maximum)
-    batch_size = 3
-    batches = [queries[i:i + batch_size] for i in range(0, len(queries), batch_size)]
-    
-    # Execute all batches in parallel using asyncio.gather()
-    batch_results = await asyncio.gather(*[_search_batch(batch) for batch in batches])
-    
-    # Combine results from all batches
-    combined_count = 0
-    combined_results = []
-    errors = []
-    
-    for result in batch_results:
-        if "error" in result:
-            errors.append(result["error"])
-        else:
-            combined_count += result.get("count", 0)
-            combined_results.extend(result.get("results", []))
-    
-    # If all batches failed, return the last error
-    if errors and not combined_results:
-        return {"error": f"MIKLIUM search failed: {errors[-1]}"}
-    
-    return {"count": combined_count, "results": combined_results}
+
+    payload = {
+        "search": [query],
+        "maxSmallSnippets": max_small,
+        "maxLargeSnippets": max_large
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://miklium.vercel.app/api/search",
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        if not data.get("success", False):
+            return {"error": f"MIKLIUM search failed: {data.get('error', 'Unknown error')}"}
+
+        results = []
+        for r in data.get("results", [])[:num_results]:
+            snippet = r.get("snippet", "")
+            results.append({
+                "title": snippet[:100] if snippet else "",
+                "url": r.get("url", ""),
+                "description": snippet[:200] if snippet else ""
+            })
+
+        return {"count": len(results), "results": results}
+    except Exception as e:
+        return {"error": f"MIKLIUM search failed: {str(e)}"}
 
 
 async def _call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
@@ -496,122 +357,107 @@ Focus on:
 Format output as clean Markdown with headers where appropriate.
 """
 
-DEFAULT_REDUCTION_PROMPT = """
-You are an analytical assistant. Synthesize multiple document summaries into one coherent overview.
-Identify common themes, differences, and provide a unified assessment.
-Return the result as structured Markdown.
-"""
 
 @mcp.tool()
 async def web_summarize(
-    urls: list[str],
+    url: str,
     summary_prompt: str = "",
-    reduce: bool = False,
-    reduction_prompt: str = "",
     max_words_per_url: int = 800
 ) -> dict:
     """
-    Fetch URLs and summarize content via configured LLM.
+    Fetch a URL and summarize content via configured LLM.
 
     Args:
-        urls: List of URLs to fetch and summarize
-        summary_prompt: Custom prompt for individual URL summaries (optional)
-        reduce: If True, synthesize all summaries into one combined summary
-        reduction_prompt: Custom prompt for the synthesis step (used when reduce=True)
-        max_words_per_url: Max words per URL before truncation (default 800)
+        url: The URL to fetch and summarize (required)
+        summary_prompt: Custom prompt for the summarization step (optional, uses built-in default)
+        max_words_per_url: Max words before truncation (default 800)
 
     Returns:
-        Dict with 'summaries' (per-URL) and optionally 'combined' (synthesis)
+        Dict with 'url' and 'summary', or 'error' on fetch/LLM failure.
     """
-    # Fetch content from all URLs
-    content_map = await web_fetch(
-        urls,
+    # Fetch content from the URL
+    fetch_result = await web_fetch(
+        url,
         num_words=max_words_per_url,
         regex=None  # No filtering; full content for summarization
     )
 
-    summaries = {}
     system_prompt = summary_prompt if summary_prompt else DEFAULT_SUMMARY_PROMPT
 
-    for url, content in content_map.items():
-        if "Error" in content or "No matches" in content:
-            summaries[url] = {"error": content[:100]}
-            continue
+    # Check for fetch errors
+    content = fetch_result.get("content", "")
+    if "error" in fetch_result or not content:
+        error_text = fetch_result.get("error", "") if "error" in fetch_result else content
+        return {"url": url, "error": error_text[:100] if len(error_text) > 100 else error_text}
 
-        try:
-            user_prompt = f"Summarize the following web content:\n\n{content}"
-            summary_text = await _call_llm(user_prompt, system_prompt)
-            summaries[url] = {"summary": summary_text.strip()}
-        except RuntimeError as e:
-            summaries[url] = {"error": str(e)}
+    # Check for "No matches" content (from regex filtering, though we don't pass regex here)
+    if "No matches" in content:
+        return {"url": url, "error": content[:100]}
 
-    result = {"summaries": summaries}
-
-    # Optional reduction step: synthesize all into one overview
-    if reduce and len(urls) > 1:
-        synthesis_prompt_text = reduction_prompt if reduction_prompt else DEFAULT_REDUCTION_PROMPT
-        individual_summaries = []
-        for url, data in summaries.items():
-            if "summary" in data:
-                individual_summaries.append(f"## Source: {url}\n\n{data['summary']}")
-
-        if individual_summaries:
-            combined_text = "\n\n---\n\n".join(individual_summaries)
-            try:
-                synthesis_input = f"The following are summaries from {len(individual_summaries)} sources:\n\n{combined_text}"
-                combined_summary = await _call_llm(synthesis_input, synthesis_prompt_text)
-                result["combined"] = {"summary": combined_summary.strip()}
-            except RuntimeError as e:
-                result["combined"] = {"error": str(e)}
-
-    return result
+    try:
+        user_prompt = f"Summarize the following web content:\n\n{content}"
+        summary_text = await _call_llm(user_prompt, system_prompt)
+        return {"url": url, "summary": summary_text.strip()}
+    except RuntimeError as e:
+        return {"url": url, "error": str(e)}
 
 @mcp.tool()
 async def web_fetch(
-    urls: list[str], 
-    include_links: bool = False, 
-    start_word: int = 0, 
-    num_words: int = 1000, 
-    regex: str = None, 
+    url: str,
+    include_links: bool = False,
+    start_word: int = 0,
+    num_words: int = 1000,
+    regex: str = None,
     regex_padding: int = 50
 ) -> dict:
-    """Fetch URLs, convert to markdown, and optionally filter via regex."""
-    results = {}
-    async with httpx.AsyncClient(follow_redirects=True, headers=DEFAULT_HEADERS) as client:
-        for url in urls:
-            try:
-                resp = await client.get(url, timeout=10.0)
-                resp.raise_for_status()
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                
-                # Handle include_links option - strip href attributes when False
-                if not include_links:
-                    for a_tag in soup.find_all('a'):
-                        a_tag.unwrap()  # Remove anchor tags but keep text content
-                
-                # Basic conversion
-                content = md(str(soup))
-                
-                # Apply Regex filtering/padding if provided
-                if regex:
-                    pattern = re.compile(regex)
-                    matches = list(pattern.finditer(content))
-                    if matches:
-                        filtered = []
-                        for m in matches:
-                            start = max(0, m.start() - regex_padding)
-                            end = min(len(content), m.end() + regex_padding)
-                            filtered.append(content[start:end])
-                        content = "\n---\n".join(filtered)
-                    else:
-                        content = "No matches found for regex."
+    """
+    Fetch a URL, convert to markdown, and optionally filter via regex.
 
-                # Word truncation
-                words = content.split()
-                results[url] = " ".join(words[start_word : start_word + num_words])
-            except Exception as e:
-                results[url] = f"Error fetching {url}: {str(e)}"
-    return results
+    Args:
+        url: The URL to fetch (required)
+        include_links: When True, preserve anchor tag hrefs; when False (default), unwrap anchors keeping only text
+        start_word: Starting word index for pagination
+        num_words: Maximum words to return (default 1000)
+        regex: Regex pattern to filter content
+        regex_padding: Characters of context around regex matches (default 50)
+
+    Returns:
+        Dict with 'url' and 'content' keys, or 'error' on failure.
+    """
+    async with httpx.AsyncClient(follow_redirects=True, headers=DEFAULT_HEADERS) as client:
+        try:
+            resp = await client.get(url, timeout=10.0)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, 'html.parser')
+
+            # Handle include_links option - strip href attributes when False
+            if not include_links:
+                for a_tag in soup.find_all('a'):
+                    a_tag.unwrap()  # Remove anchor tags but keep text content
+
+            # Basic conversion
+            content = md(str(soup))
+
+            # Apply Regex filtering/padding if provided
+            if regex:
+                pattern = re.compile(regex)
+                matches = list(pattern.finditer(content))
+                if matches:
+                    filtered = []
+                    for m in matches:
+                        start = max(0, m.start() - regex_padding)
+                        end = min(len(content), m.end() + regex_padding)
+                        filtered.append(content[start:end])
+                    content = "\n---\n".join(filtered)
+                else:
+                    content = "No matches found for regex."
+
+            # Word truncation
+            words = content.split()
+            truncated = " ".join(words[start_word : start_word + num_words])
+            return {"url": url, "content": truncated}
+        except Exception as e:
+            return {"url": url, "error": f"Error fetching {url}: {str(e)}"}
 
 if __name__ == "__main__":  # pragma: no cover
     import argparse

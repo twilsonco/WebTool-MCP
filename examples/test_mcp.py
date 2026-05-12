@@ -32,12 +32,8 @@ async def test_web_search(session: ClientSession):
         session,
         "web_search",
         {
-            "searches": [
-                {
-                    "query": "Python MCP server implementation",
-                    "num_results": 3
-                }
-            ]
+            "query": "Python MCP server implementation",
+            "num_results": 3
         },
     )
     print(json.dumps(response, indent=2))
@@ -49,13 +45,9 @@ async def test_web_search_tavily(session: ClientSession):
         session,
         "web_search",
         {
-            "searches": [
-                {
-                    "query": "Python async programming",
-                    "provider": "tavily",
-                    "num_results": 2
-                }
-            ]
+            "query": "Python async programming",
+            "provider": "tavily",
+            "num_results": 2
         },
     )
     print(json.dumps(response, indent=2))
@@ -67,13 +59,9 @@ async def test_web_search_brave(session: ClientSession):
         session,
         "web_search",
         {
-            "searches": [
-                {
-                    "query": "FastMCP tutorial",
-                    "provider": "brave",
-                    "num_results": 2
-                }
-            ]
+            "query": "FastMCP tutorial",
+            "provider": "brave",
+            "num_results": 2
         },
     )
     print(json.dumps(response, indent=2))
@@ -85,13 +73,9 @@ async def test_web_search_google(session: ClientSession):
         session,
         "web_search",
         {
-            "searches": [
-                {
-                    "query": "MCP protocol specification",
-                    "provider": "google",
-                    "num_results": 2
-                }
-            ]
+            "query": "MCP protocol specification",
+            "provider": "google",
+            "num_results": 2
         },
     )
     print(json.dumps(response, indent=2))
@@ -103,7 +87,7 @@ async def test_web_fetch(session: ClientSession):
         session,
         "web_fetch",
         {
-            "urls": ["https://example.com"],
+            "url": "https://example.com",
             "num_words": 50
         },
     )
@@ -116,7 +100,7 @@ async def test_web_summarize(session: ClientSession):
         session,
         "web_summarize",
         {
-            "urls": ["https://example.com"],
+            "url": "https://example.com",
             "max_words_per_url": 300
         },
     )

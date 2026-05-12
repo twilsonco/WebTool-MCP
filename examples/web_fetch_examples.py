@@ -2,6 +2,11 @@
 """
 web_fetch examples - Demonstrates usage of the web_fetch MCP tool.
 This script imports and calls the actual implementation directly.
+
+The atomic API fetches one URL per call:
+    result = await real_web_fetch("https://example.com", num_words=500)
+
+Returns a dict with 'url' and 'content', or 'error' on failure.
 """
 import os
 import sys
@@ -20,20 +25,25 @@ load_dotenv(project_root / ".env")
 from src.mcp_server.server import web_fetch as real_web_fetch
 
 
+def print_result(result: dict):
+    """Display a fetch result."""
+    if "error" in result:
+        print(f"  Error: {result['error']}")
+        return
+    content = result.get("content", "")
+    preview = content[:300] if len(content) > 300 else content
+    print(f"\n[{result['url']}]")
+    print(preview + ("..." if len(content) > 300 else ""))
+
+
 async def example_basic():
     """Example 1: Basic fetch - just get content as markdown."""
     print("\n" + "=" * 60)
     print("EXAMPLE 1: Basic Fetch")
     print("=" * 60)
 
-    urls = ["https://example.com", "https://httpbin.org/html"]
-
-    results = await real_web_fetch(urls)
-
-    for url, content in results.items():
-        preview = content[:300] if len(content) > 300 else content
-        print(f"\n[{url}]")
-        print(preview + ("..." if len(content) > 300 else ""))
+    result = await real_web_fetch("https://example.com")
+    print_result(result)
 
 
 async def example_with_truncation():
@@ -42,16 +52,14 @@ async def example_with_truncation():
     print("EXAMPLE 2: Word Truncation")
     print("=" * 60)
 
-    # Fetch some quotes
-    urls = ["https://quotes.toscrape.com"]
+    result = await real_web_fetch("https://quotes.toscrape.com", num_words=50)
 
-    results = await real_web_fetch(urls, num_words=50)
-
-    for url, content in results.items():
-        word_count = len(content.split())
-        print(f"\n[{url}]")
+    if "content" in result:
+        word_count = len(result["content"].split())
+        print(f"\n[{result['url']}]")
         print(f"Truncated to {word_count} words:")
         print("-" * 40)
+        content = result["content"]
         print(content[:500] + "..." if len(content) > 500 else content)
 
 
@@ -61,23 +69,26 @@ async def example_with_regex():
     print("EXAMPLE 3: Regex Filtering")
     print("=" * 60)
 
-    # Get a page and filter for specific patterns
-    urls = ["https://httpbin.org/html"]
-
     # Try different patterns - some may match, some not
-    results_no_match = await real_web_fetch(urls, regex=r"NONEXISTENT_PATTERN_XYZ", regex_padding=20)
+    result_no_match = await real_web_fetch("https://httpbin.org/html", regex=r"NONEXISTENT_PATTERN_XYZ", regex_padding=20)
     print(f"\nPattern 'NONEXISTENT_PATTERN_XYZ' on httpbin.org:")
-    print(f"  Result: {results_no_match['https://httpbin.org/html']}")
+    if "content" in result_no_match:
+        print(f"  Result: {result_no_match['content']}")
+    else:
+        print_result(result_no_match)
 
     # Pattern that should match like "the" or "is"
-    results_matching = await real_web_fetch(
-        urls,
+    result_matching = await real_web_fetch(
+        "https://httpbin.org/html",
         regex=r"the|is",
         regex_padding=30
     )
     print(f"\nPattern 'the|is' on httpbin.org:")
-    content = results_matching['https://httpbin.org/html'][:500]
-    print(content + ("..." if len(results_matching['https://httpbin.org/html']) > 500 else ""))
+    if "content" in result_matching:
+        content = result_matching["content"][:500]
+        print(content + ("..." if len(result_matching["content"]) > 500 else ""))
+    else:
+        print_result(result_matching)
 
 
 async def example_start_offset():
@@ -86,17 +97,17 @@ async def example_start_offset():
     print("EXAMPLE 4: Word Offset (start_word)")
     print("=" * 60)
 
-    # Get the same page twice with different offsets to show pagination effect
     url = "https://httpbin.org/html"
 
-    first_100 = await real_web_fetch([url], num_words=20, start_word=0)
-    second_100 = await real_web_fetch([url], num_words=20, start_word=50)
+    first_100 = await real_web_fetch(url, num_words=20, start_word=0)
+    second_100 = await real_web_fetch(url, num_words=20, start_word=50)
 
     print(f"\n[{url}]")
     print("-" * 40)
-    print(f"Words 1-20: {first_100[url]}")
-    print()
-    print(f"Words 51-70: {second_100[url]}")
+    if "content" in first_100:
+        print(f"Words 1-20: {first_100['content']}")
+    if "content" in second_100:
+        print(f"\nWords 51-70: {second_100['content']}")
 
 
 async def main():

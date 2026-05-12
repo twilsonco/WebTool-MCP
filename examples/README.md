@@ -38,9 +38,9 @@ End-to-end MCP client test that connects via the streamable-http transport and c
 
 ### web_fetch_examples.py
 
-Direct-call examples importing the actual `web_fetch` implementation from server.py. No API keys needed.
+Direct-call examples importing the actual `web_fetch` implementation from server.py. Each call fetches a single URL. No API keys needed.
 
-1. **Basic Fetch** - Fetch two URLs and display raw Markdown
+1. **Basic Fetch** - Fetch a URL and display raw Markdown
 2. **Word Truncation** - `num_words=50` truncates output to 50 words
 3. **Regex Filtering** - `regex="the|is"` with `regex_padding=30` for context around matches
 4. **Word Offset** - `start_word=0` vs `start_word=50` for pagination by word position
@@ -51,17 +51,17 @@ uv run python examples/web_fetch_examples.py
 
 ### web_search_examples.py
 
-Direct-call examples importing the actual `web_search` implementation. Supports a `--dry-run` flag to print search specs without making API calls, and positional provider arguments (e.g., `tavily`, `brave`, `google`).
+Direct-call examples importing the actual `web_search` implementation. Each call performs a single search with one provider. Supports a `--dry-run` flag to print search specs without making API calls, and positional provider arguments (e.g., `tavily`, `brave`, `google`).
 
-1. **Tavily Search** - Requires `TAVILY_API_KEY`
-2. **Brave Search** - Requires `BRAVE_API_KEY`
-3. **Google Custom Search** - Requires `GOOGLE_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID`
-4. **Date Filtering** - `days=730` (2 years); Brave maps to freshness codes, Tavily computes start_date
-5. **Date Options** - Brave-specific: `days=1` (`pd`), `7` (`pw`), `31` (`pm`), `365` (`py`)
-6. **Offset Pagination** - `offset=N` for Brave/Google; Tavily does not support offsets
-7. **Google Ignores Days** - Shows Google silently drops the `days` parameter
-8. **Multiple Queries** - Multiple providers tested in one API call
-9. **Error Handling** - Unknown provider and missing query fields produce error objects, not exceptions
+1. **Miklium Search** - Default, free provider (no API key required)
+2. **Tavily Search** - Requires `TAVILY_API_KEY`
+3. **Brave Search** - Requires `BRAVE_API_KEY`
+4. **Google Custom Search** - Requires `GOOGLE_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID`
+5. **Date Filtering** - `days=730` (2 years); Brave maps to freshness codes, Tavily computes start_date
+6. **Date Options** - Brave-specific: `days=1` (`pd`), `7` (`pw`), `31` (`pm`), `365` (`py`)
+7. **Offset Pagination** - `offset=N` for Brave/Google; Tavily does not support offsets
+8. **Google Ignores Days** - Shows Google silently drops the `days` parameter
+9. **Error Handling** - Unknown provider and empty query produce error objects, not exceptions
 10. **Config Check** - Prints which search API keys are SET vs NOT SET
 
 ```bash
@@ -72,14 +72,12 @@ uv run python examples/web_search_examples.py --dry-run    # print specs, no API
 
 ### web_summarize_examples.py
 
-Direct-call examples importing the actual `web_summarize` implementation. Requires LLM provider configuration.
+Direct-call examples importing the actual `web_summarize` implementation. Each call summarizes a single URL. Requires LLM provider configuration.
 
 1. **Single URL** - Summarize one URL with `max_words_per_url=500`
-2. **Multiple URLs + Reduce** - Summarize multiple URLs with `reduce=True` for a combined overview
-3. **Custom Summary Prompt** - Custom prompt guiding what the LLM extracts
-4. **Custom Reduction Prompt** - Custom comparison/synthesis prompt (used with `reduce=True`)
-5. **LLM Config Check** - Initializes `LLMManager` and prints provider info (name, base_url, model)
-6. **Multi-Provider Failover** - Demonstrates multi-provider LLM failover (commented out in `main()` by default)
+2. **Custom Summary Prompt** - Custom prompt guiding what the LLM extracts
+3. **LLM Config Check** - Initializes `LLMManager` and prints provider info (name, base_url, model)
+4. **Multi-Provider Failover** - Demonstrates multi-provider LLM failover (commented out in `main()` by default)
 
 ```bash
 uv run python examples/web_summarize_examples.py
