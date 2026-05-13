@@ -5,9 +5,9 @@ import os
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.session import ClientSession
 
-# Get server port from env or default to 8000 (uvicorn default when using --http)
+# Get server port from env or default to 8000
 SERVER_PORT = int(os.getenv("MCP_SERVER_PORT", "8000"))
-# FastMCP's streamable_http_app mounts at /mcp (default mount_path)
+# fastapi-mcp mounts the StreamableHTTP endpoint at /mcp
 BASE_URL = f"http://localhost:{SERVER_PORT}/mcp"
 
 

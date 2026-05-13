@@ -21,9 +21,9 @@ End-to-end MCP client test that connects via the streamable-http transport and c
 
 **How to Run:**
 
-1. Start the MCP server with HTTP transport:
+1. Start the MCP server:
    ```bash
-   uv run python src/mcp_server/server.py --http
+   uv run python src/mcp_server/server.py
    ```
 
 2. In a separate terminal, run the test script:
@@ -32,7 +32,7 @@ End-to-end MCP client test that connects via the streamable-http transport and c
    ```
 
 **Requirements:**
-- Server must be running with `--http` on `http://localhost:8000` (or set `MCP_SERVER_PORT` env var)
+- Server must be running on `http://localhost:8000` (or set `MCP_SERVER_PORT` env var)
 - Internet connection for making web requests
 - For `web_summarize`, configure LLM providers in `.env` (optional - search and fetch work without it)
 

@@ -121,22 +121,17 @@ Free web search provider. No environment variables required - it's always availa
 
 ### Starting the Server
 
-Run the MCP server directly (stdio transport, for MCP client integration):
+Run the MCP server (HTTP transport on port 8000):
 ```bash
 uv run python src/mcp_server/server.py
 ```
 
-For HTTP transport (for testing or non-stdio clients), use the `--http` flag:
+Change the host or port with `--host` and `--port`:
 ```bash
-uv run python src/mcp_server/server.py --http
+uv run python src/mcp_server/server.py --host 0.0.0.1 --port 9000
 ```
 
-The default HTTP port is 8000. Change it with `--port`:
-```bash
-uv run python src/mcp_server/server.py --http --port 9000
-```
-
-The HTTP server mounts at `/mcp` and uses the MCP streamable-http transport.
+The server exposes a health check at `/` and the MCP streamable-http endpoint at `/mcp`.
 
 ### Running Examples
 
@@ -334,7 +329,7 @@ curl -X POST http://localhost:8000/mcp \
 
 ### Claude Desktop
 
-To use WebTool-MCP with Claude Desktop, add the following to your Claude Desktop configuration file:
+To use WebTool-MCP with Claude Desktop, first start the server (or run it as a persistent service — see "Running as an Always-On Service"), then add the following to your Claude Desktop configuration file:
 
 **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
@@ -344,40 +339,21 @@ To use WebTool-MCP with Claude Desktop, add the following to your Claude Desktop
 {
     "mcpServers": {
         "webtool": {
-            "command": "uv",
-            "args": [
-                "run",
-                "python",
-                "src/mcp_server/server.py"
-            ],
-            "env": {
-                "LLM_PROVIDER_1_BASE_URL": "http://localhost:11434/v1",
-                "LLM_PROVIDER_1_MODEL": "llama3.2"
-            }
+            "url": "http://localhost:8000/mcp"
         }
     }
 }
 ```
 
-For full functionality, also configure your search provider API keys in the environment:
+If the server requires Bearer token authentication (when `MCP_API_KEYS` is set), include the token:
 
 ```json
 {
     "mcpServers": {
         "webtool": {
-            "command": "uv",
-            "args": [
-                "run",
-                "python",
-                "src/mcp_server/server.py"
-            ],
-            "env": {
-                "LLM_PROVIDER_1_BASE_URL": "http://localhost:11434/v1",
-                "LLM_PROVIDER_1_MODEL": "llama3.2",
-                "LLM_PROVIDER_2_BASE_URL": "https://api.openai.com/v1",
-                "LLM_PROVIDER_2_API_KEY": "sk-your-openai-key",
-                "LLM_PROVIDER_2_MODEL": "gpt-4o-mini",
-                "TAVILY_API_KEY": "your-tavily-api-key"
+            "url": "http://localhost:8000/mcp",
+            "headers": {
+                "Authorization": "Bearer your-api-key"
             }
         }
     }
@@ -408,7 +384,7 @@ uv run pytest tests/test_server.py
 
 ## Running as an Always-On Service
 
-For HTTP-mode deployments (via the `--http` flag), you can run WebTool-MCP as a persistent background service. This is useful when you want the server available at all times without manually starting it each session.
+You can run WebTool-MCP as a persistent background service. This is useful when you want the server available at all times without manually starting it each session.
 
 ### macOS — launchctl
 
@@ -428,7 +404,6 @@ For HTTP-mode deployments (via the `--http` flag), you can run WebTool-MCP as a 
         <string>run</string>
         <string>python</string>
         <string>src/mcp_server/server.py</string>
-        <string>--http</string>
         <string>--port</string>
         <string>8000</string>
     </array>
@@ -479,7 +454,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/home/you/WebTool-MCP
-ExecStart=/home/you/.local/bin/uv run python src/mcp_server/server.py --http --port 8000
+ExecStart=/home/you/.local/bin/uv run python src/mcp_server/server.py --port 8000
 Environment=LLM_PROVIDER_1_BASE_URL=http://localhost:11434/v1
 Environment=LLM_PROVIDER_1_MODEL=llama3.2
 Restart=on-failure
@@ -518,7 +493,7 @@ journalctl --user -u webtool-mcp.service -f
    - **Triggers:** "At log on" for your user account
    - **Action:** "Start a program"
      - Program: `uv.exe` (full path, e.g. `C:\Users\You\.local\bin\uv.exe`)
-     - Arguments: `run python src/mcp_server/server.py --http --port 8000`
+     - Arguments: `run python src/mcp_server/server.py --port 8000`
      - Start in: `C:\Users\You\WebTool-MCP`
    - **Conditions:** Uncheck "Start only if the network is available" if you want it to start offline
    - **Settings:** Enable "Restart if the task fails" with a 5-second delay, up to 3 retries
@@ -528,7 +503,7 @@ journalctl --user -u webtool-mcp.service -f
 For a more robust service, [NSSM (Non-Sucking Service Manager)](https://nssm.cc/) can wrap the server as a proper Windows service:
 
 ```powershell
-nssm install WebToolMCP "C:\Users\You\.local\bin\uv.exe" "run python src/mcp_server/server.py --http --port 8000"
+nssm install WebToolMCP "C:\Users\You\.local\bin\uv.exe" "run python src/mcp_server/server.py --port 8000"
 nssm set WebToolMCP AppDirectory "C:\Users\You\WebTool-MCP"
 nssm set WebToolMCP AppEnvironmentExtra LLM_PROVIDER_1_BASE_URL=http://localhost:11434/v1 LLM_PROVIDER_1_MODEL=llama3.2
 nssm start WebToolMCP
@@ -560,6 +535,7 @@ The `days` parameter is mapped to Brave's freshness codes: 1 day = `pd`, 7 days 
 
 **Core:**
 - mcp >= 1.0.0
+- fastapi-mcp >= 0.4.0
 - httpx >= 0.25.0
 - beautifulsoup4 >= 4.12.0
 - markdownify >= 0.11.0

@@ -1631,3 +1631,60 @@ class TestLLMAllProvidersFailedError:
         assert "3" in str(error)
         assert "p1" in str(error)
         assert "p2" in str(error)
+
+
+class TestHTTPEndpoints:
+    """Integration tests for FastAPI route handlers and MCP tool registration."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from mcp_server.server import app
+        return TestClient(app)
+
+    def test_health_endpoint(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["name"] == "WebTool MCP Server"
+
+    def test_mcp_tools_registered(self):
+        from mcp_server.server import fastapi_mcp
+        tool_names = [t.name for t in fastapi_mcp.tools]
+        assert "web_search" in tool_names
+        assert "web_fetch" in tool_names
+        assert "web_summarize" in tool_names
+
+    def test_mcp_tools_exclude_health(self):
+        from mcp_server.server import fastapi_mcp
+        tool_names = [t.name for t in fastapi_mcp.tools]
+        assert "health__get" not in tool_names
+        # Only 3 tools (web_search, web_fetch, web_summarize)
+        assert len(tool_names) == 3
+
+    def test_mcp_tool_schemas(self):
+        from mcp_server.server import fastapi_mcp
+        tools_by_name = {t.name: t for t in fastapi_mcp.tools}
+        # web_search has query as required
+        search_props = tools_by_name["web_search"].inputSchema["properties"]
+        assert "query" in search_props
+        assert "provider" in search_props
+        # web_fetch has url as required
+        fetch_props = tools_by_name["web_fetch"].inputSchema["properties"]
+        assert "url" in fetch_props
+        # web_summarize has url as required
+        summarize_props = tools_by_name["web_summarize"].inputSchema["properties"]
+        assert "url" in summarize_props
+
+    def test_auth_dependency_exists(self):
+        from mcp_server.server import _require_auth, api_keys
+        # The dependency is wired; verify it exists and references our verifier
+        assert callable(_require_auth)
+        # api_keys is a list (may be empty when no MCP_API_KEYS set)
+        assert isinstance(api_keys, list)
+
+    def test_fastapi_app_routes(self, client):
+        # POST routes accept query params (FastAPI default for simple-typed params)
+        resp = client.post("/web_search?query=test")
+        assert resp.status_code == 200

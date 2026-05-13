@@ -1,11 +1,15 @@
 import os
 import re
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Optional
+
 import httpx
-from mcp.server.fastmcp import FastMCP
-from mcp.server.auth.settings import AuthSettings
-from mcp.server.transport_security import TransportSecuritySettings
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from fastapi_mcp import FastApiMCP
+
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
@@ -15,39 +19,54 @@ from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
 
 load_dotenv()
 
+
+# --- Search Provider Enum ====================================================
+
+class SearchProvider(str, Enum):
+    """Valid search providers for web_search tool."""
+    MIKLIUM = "miklium"
+    TAVILY = "tavily"
+    BRAVE = "brave"
+    GOOGLE = "google"
+
+
 # Load authentication and host configuration
 api_keys = load_api_keys_from_env()
 server_host = os.getenv("MCP_HOST", "127.0.0.1")
 
-# Configure Bearer token authentication when API keys are present
-token_verifier = StaticTokenVerifier(api_keys) if api_keys else None
-auth_settings = None
-if token_verifier:
-    auth_settings = AuthSettings(
-        issuer_url=f"http://{server_host}:8000",
-        resource_server_url=f"http://{server_host}:8000",
-        required_scopes=["mcp"],
-    )
+# --- FastAPI App & Auth =======================================================
 
-# Configure DNS rebinding protection for non-localhost hosts
-transport_security = None
-if server_host not in ("127.0.0.1", "localhost", "::1"):
-    transport_security = TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=[f"{server_host}:*"],
-    )
-
-mcp = FastMCP(
-    "WebTool",
-    host=server_host,
-    token_verifier=token_verifier,
-    auth=auth_settings,
-    transport_security=transport_security,
+app = FastAPI(
+    title="WebTool MCP Server",
+    version="0.1.0",
 )
+
+# DNS rebinding protection for non-localhost hosts
+if server_host not in ("127.0.0.1", "localhost", "::1"):
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[server_host],
+    )
+
+# Bearer token auth dependency
+_bearer = HTTPBearer(auto_error=False)
+
+
+async def _require_auth(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> None:
+    if not api_keys:
+        return  # Auth disabled
+    verifier = StaticTokenVerifier(api_keys)
+    token = credentials.credentials if credentials else ""
+    result = await verifier.verify_token(token)
+    if result is None:
+        raise HTTPException(status_code=401, detail="Invalid or missing Bearer token")
+
 if api_keys:
-    print(f"FastMCP initialized with Bearer token auth ({len(api_keys)} key(s))")
+    print(f"Server initialized with Bearer token auth ({len(api_keys)} key(s))")
 else:
-    print("FastMCP initialized (no API keys — auth disabled)")
+    print("Server initialized (no API keys — auth disabled)")
 
 # LLM Manager with multi-provider failover support
 llm_manager = LLMManager()
@@ -65,30 +84,29 @@ def _get_configured_providers() -> list[str]:
     MIKLIUM is always available (no API key required).
     """
     providers = []
-    
+
     # MIKLIUM (priority 1) - no API key required, free API
     providers.append("miklium")
-    
+
     # Check Tavily (priority 2)
     if os.getenv("TAVILY_API_KEY"):
         providers.append("tavily")
-    
+
     # Check Brave (priority 3)
     if os.getenv("BRAVE_API_KEY"):
         providers.append("brave")
-    
+
     # Check Google (priority 4) - requires both API key and search engine ID
     if os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_SEARCH_ENGINE_ID"):
         providers.append("google")
-    
+
     return providers
 
 
-# Note: FastMCP derives input schema from type hints.
-# Provider validation + failover ensures invalid providers fail over to configured ones.
+# --- MCP Tool Business Logic ==================================================
+# These functions are called directly by tests and by the route wrappers below.
 
 
-@mcp.tool()
 async def web_search(
     query: str,
     provider: Optional[str] = None,
@@ -186,7 +204,7 @@ async def _search_tavily(query: str, num_results: int, days: int = 0) -> dict:
         return {"error": "TAVILY_API_KEY not configured in .env"}
 
     payload = {"query": query, "search_depth": "basic", "max_results": num_results}
-    
+
     # Compute start_date from days parameter
     if days > 0:
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -358,7 +376,6 @@ Format output as clean Markdown with headers where appropriate.
 """
 
 
-@mcp.tool()
 async def web_summarize(
     url: str,
     summary_prompt: str = "",
@@ -401,7 +418,7 @@ async def web_summarize(
     except RuntimeError as e:
         return {"url": url, "error": str(e)}
 
-@mcp.tool()
+
 async def web_fetch(
     url: str,
     include_links: bool = False,
@@ -459,23 +476,100 @@ async def web_fetch(
         except Exception as e:
             return {"url": url, "error": f"Error fetching {url}: {str(e)}"}
 
+
+# --- FastAPI Route Wrappers (MCP Tools via fastapi-mcp) =======================
+# These thin wrappers expose the tool functions as FastAPI routes.
+# fastapi-mcp auto-generates MCP tools from these routes at mount time.
+
+
+@app.post(
+    "/web_search",
+    operation_id="web_search",
+    tags=["mcp-tool"],
+    summary="Perform web search, general or with optional specified provider",
+    dependencies=[Depends(_require_auth)],
+)
+async def api_web_search(
+    query: str,
+    provider: Optional[SearchProvider] = None,
+    num_results: int = 10,
+    days: int = 0,
+    offset: int = 0,
+) -> dict:
+    return await web_search(
+        query=query,
+        provider=provider.value if provider else None,
+        num_results=num_results,
+        days=days,
+        offset=offset,
+    )
+
+
+@app.post(
+    "/web_fetch",
+    operation_id="web_fetch",
+    tags=["mcp-tool"],
+    summary="Fetch, convert to markdown, and/or filter via regex",
+    dependencies=[Depends(_require_auth)],
+)
+async def api_web_fetch(
+    url: str,
+    include_links: bool = False,
+    start_word: int = 0,
+    num_words: int = 1000,
+    regex: Optional[str] = None,
+    regex_padding: int = 50,
+) -> dict:
+    return await web_fetch(
+        url=url,
+        include_links=include_links,
+        start_word=start_word,
+        num_words=num_words,
+        regex=regex,
+        regex_padding=regex_padding,
+    )
+
+
+@app.post(
+    "/web_summarize",
+    operation_id="web_summarize",
+    tags=["mcp-tool"],
+    summary="Fetch AI-summarized URL content via configured LLM",
+    dependencies=[Depends(_require_auth)],
+)
+async def api_web_summarize(
+    url: str,
+    summary_prompt: str = "",
+    max_words_per_url: int = 800,
+) -> dict:
+    return await web_summarize(
+        url=url,
+        summary_prompt=summary_prompt,
+        max_words_per_url=max_words_per_url,
+    )
+
+
+@app.get("/")
+async def health() -> dict:
+    """Health check endpoint for service discovery."""
+    return {"status": "ok", "name": "WebTool MCP Server"}
+
+
+# --- Mount MCP StreamableHTTP at /mcp ========================================
+
+fastapi_mcp = FastApiMCP(app, name="WebTool", include_tags=["mcp-tool"])
+fastapi_mcp.mount_http(mount_path="/mcp")
+
+
 if __name__ == "__main__":  # pragma: no cover
     import argparse
-    print("Starting MCP server...", flush=True)
-    try:
-        parser = argparse.ArgumentParser(description="WebTool MCP Server")
-        parser.add_argument("--http", action="store_true", help="Enable HTTP transport (Streamable HTTP)")
-        parser.add_argument("--host", default=server_host, help="Bind address (default: 127.0.0.1)")
-        parser.add_argument("--port", type=int, default=8000, help="Port for HTTP transport (default: 8000)")
-        args = parser.parse_args()
+    import uvicorn
 
-        if args.http:
-            import uvicorn
-            app = mcp.streamable_http_app()
-            uvicorn.run(app, host=args.host, port=args.port)
-        else:
-            mcp.run()
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"Server failed to start: {str(e)}")
+    print("Starting MCP server...", flush=True)
+
+    parser = argparse.ArgumentParser(description="WebTool MCP Server")
+    parser.add_argument("--host", default=server_host, help="Bind address (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
+    args = parser.parse_args()
+
+    uvicorn.run(app, host=args.host, port=args.port)
