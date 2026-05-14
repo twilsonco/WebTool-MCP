@@ -12,7 +12,7 @@ The server is built with:
 - **BeautifulSoup** and **markdownify** for HTML-to-Markdown conversion
 - OpenAI-compatible LLM endpoints for summarization
 
-## Features
+## Tools/Functions
 
 ### fetchWebContent
 Fetch URLs and convert HTML content to Markdown format with optional filtering and pagination.
