@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-web_fetch examples - Demonstrates usage of the web_fetch MCP tool.
+webFetch examples - Demonstrates usage of the webFetch MCP tool.
 This script imports and calls the actual implementation directly.
 
 The atomic API fetches one URL per call:
@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementation functions from server.py
-from src.mcp_server.server import web_fetch as real_web_fetch
+from src.mcp_server.server import webFetch as real_web_fetch
 
 
 def print_result(result: dict):
@@ -112,7 +112,7 @@ async def example_start_offset():
 
 async def main():
     print("\n" + "#" * 60)
-    print("# web_fetch Examples (using real implementation)")
+    print("# webFetch Examples (using real implementation)")
     print("#" * 60)
 
     await example_basic()

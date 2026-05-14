@@ -14,7 +14,7 @@ The server is built with:
 
 ## Features
 
-### web_fetch
+### webFetch
 Fetch URLs and convert HTML content to Markdown format with optional filtering and pagination.
 
 - Convert HTML pages to clean Markdown suitable for LLMs
@@ -22,7 +22,7 @@ Fetch URLs and convert HTML content to Markdown format with optional filtering a
 - Word-level truncation and pagination via `start_word` and `num_words`
 - Optional extraction of links from fetched pages
 
-### web_search
+### webSearch
 Multi-provider web search with support for:
 
 - **[Miklium](https://github.com/MIKLIUM-Team/MIKLIUM/blob/main/api/search/README.md)** - Free provider, no API key required (always available, but subject to rate limits and potential downtime)
@@ -32,7 +32,7 @@ Multi-provider web search with support for:
 
 Features include automatic failover between providers and date filtering (results from the last N days).
 
-### web_summarize
+### webSummarize
 Fetch a URL and generate an AI-powered summary using a configured LLM endpoint. This way you get the most relevant information without overwhelming the model with too much content.
 
 - Summarization via OpenAI-compatible API
@@ -42,8 +42,8 @@ Fetch a URL and generate an AI-powered summary using a configured LLM endpoint. 
 ## Prerequisites
 
 - Python 3.10 or higher
-- For **web_search**: Works out-of-the-box with Miklium (no API key required). Optional: add TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY + GOOGLE_SEARCH_ENGINE_ID for additional providers
-- For **web_summarize**: An OpenAI-compatible endpoint (Ollama, OpenWebUI, etc.)
+- For **webSearch**: Works out-of-the-box with Miklium (no API key required). Optional: add TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY + GOOGLE_SEARCH_ENGINE_ID for additional providers
+- For **webSummarize**: An OpenAI-compatible endpoint (Ollama, OpenWebUI, etc.)
 
 ## Installation
 
@@ -69,7 +69,7 @@ cp .env.example .env
 
 WebTool uses environment variables for configuration. Copy `.env.example` to `.env` and set the appropriate values.
 
-### LLM Configuration (for web_summarize)
+### LLM Configuration (for webSummarize)
 
 WebTool supports multiple LLM providers with automatic failover. Providers are tried in order (1, 2, 3...) - if the primary fails, the next provider is used automatically.
 
@@ -88,7 +88,7 @@ WebTool supports multiple LLM providers with automatic failover. Providers are t
 
 *Only required if configuring failover support.
 
-### Search Provider Configuration (for web_search)
+### Search Provider Configuration (for webSearch)
 
 Web search works out-of-the-box with **Miklium** (no API key required). Additional providers can be configured for redundancy.
 
@@ -141,19 +141,19 @@ The project includes example scripts demonstrating each tool:
 # Run all examples
 uv run python examples/run_examples.py all
 
-# Run only web_fetch examples
+# Run only webFetch examples
 uv run python examples/run_examples.py fetch
 
-# Run only web_search examples
+# Run only webSearch examples
 uv run python examples/run_examples.py search
 
-# Run only web_summarize examples
+# Run only webSummarize examples
 uv run python examples/run_examples.py summarize
 ```
 
 ### Tool Reference
 
-#### web_fetch
+#### webFetch
 
 Fetch a URL and convert to Markdown.
 
@@ -199,7 +199,7 @@ curl -X POST http://localhost:8000/mcp \
     "id": 2,
     "method": "tools/call",
     "params": {
-      "name": "web_fetch",
+      "name": "webFetch",
       "arguments": {
         "url": "https://example.com",
         "num_words": 500,
@@ -209,7 +209,7 @@ curl -X POST http://localhost:8000/mcp \
   }'
 ```
 
-#### web_search
+#### webSearch
 
 Execute a web search with automatic failover between configured providers.
 
@@ -246,7 +246,7 @@ result = await web_search(
 
 **Example (curl — HTTP transport):**
 
-After initializing a session (see web_fetch example above), call the tool:
+After initializing a session (see webFetch example above), call the tool:
 ```bash
 curl -X POST http://localhost:8000/mcp \
   -H "Accept: application/json, text/event-stream" \
@@ -257,7 +257,7 @@ curl -X POST http://localhost:8000/mcp \
     "id": 2,
     "method": "tools/call",
     "params": {
-      "name": "web_search",
+      "name": "webSearch",
       "arguments": {
         "query": "Python async programming",
         "provider": "tavily",
@@ -267,7 +267,7 @@ curl -X POST http://localhost:8000/mcp \
   }'
 ```
 
-#### web_summarize
+#### webSummarize
 
 Fetch a URL and generate an LLM-powered summary.
 
@@ -295,7 +295,7 @@ Or on error:
 
 **Example (Python):**
 ```python
-result = await web_summarize(
+result = await webSummarize(
     url="https://docs.python.org/3/library/asyncio.html",
     summary_prompt="Focus on async/await patterns and best practices.",
     max_words_per_url=1000
@@ -304,7 +304,7 @@ result = await web_summarize(
 
 **Example (curl — HTTP transport):**
 
-After initializing a session (see web_fetch example above), call the tool:
+After initializing a session (see webFetch example above), call the tool:
 ```bash
 curl -X POST http://localhost:8000/mcp \
   -H "Accept: application/json, text/event-stream" \
@@ -315,7 +315,7 @@ curl -X POST http://localhost:8000/mcp \
     "id": 2,
     "method": "tools/call",
     "params": {
-      "name": "web_summarize",
+      "name": "webSummarize",
       "arguments": {
         "url": "https://docs.python.org/3/library/asyncio.html",
         "summary_prompt": "Focus on async/await patterns and best practices.",
@@ -526,7 +526,7 @@ All API keys are loaded from the `.env` file at startup. The server never hardco
 Content is converted to Markdown format using `markdownify`, making it ideal for consumption by LLMs without HTML parsing overhead.
 
 ### Multi-Provider Search
-The web_search tool abstracts over multiple search providers, normalizing their output formats. Miklium is always available as the default provider (no API key required). Additional providers (Tavily, Brave, Google) are enabled when their API keys are configured. When a preferred provider fails or is not configured, the tool automatically fails over to the next available provider in priority order (miklium > tavily > brave > google).
+The webSearch tool abstracts over multiple search providers, normalizing their output formats. Miklium is always available as the default provider (no API key required). Additional providers (Tavily, Brave, Google) are enabled when their API keys are configured. When a preferred provider fails or is not configured, the tool automatically fails over to the next available provider in priority order (miklium > tavily > brave > google).
 
 ### Brave Freshness Mapping
 The `days` parameter is mapped to Brave's freshness codes: 1 day = `pd`, 7 days = `pw`, 31 days = `pm`, 365 days = `py`. Values outside these ranges produce no freshness filter.
