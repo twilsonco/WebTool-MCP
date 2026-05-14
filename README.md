@@ -408,7 +408,7 @@ You can run WebTool-MCP as a persistent background service. This is useful when 
         <string>8000</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/YOU/NoSync/WebTool-MCP</string>
+    <string>/Users/YOU/tools/WebTool-MCP</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>LLM_PROVIDER_1_BASE_URL</key>
