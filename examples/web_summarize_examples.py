@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-webSummarize examples - Demonstrates usage of the webSummarize MCP tool.
+summarizeWebContent examples - Demonstrates usage of the summarizeWebContent MCP tool.
 This script imports and calls the actual implementations directly.
 Loads API keys from .env in project root.
 Requires LLM_PROVIDER_1_* variables to be configured (multi-provider support).
@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementations from server.py
-from src.mcp_server.server import webSummarize as real_web_summarize
+from src.mcp_server.server import summarizeWebContent as real_web_summarize
 
 
 async def example_single_url():
@@ -167,7 +167,7 @@ async def main():
     from src.mcp_server.llm import LLMManager
 
     print("\n" + "#" * 60)
-    print("# webSummarize Examples (using real implementation)")
+    print("# summarizeWebContent Examples (using real implementation)")
     try:
         manager = LLMManager()
         if manager.providers:

@@ -9,15 +9,15 @@ This directory contains example scripts demonstrating how to interact with the W
 Entry-point launcher that runs example scripts by tool name. Supports `fetch`, `search`, `summarize`, or `all` (runs all three in sequence with prompts between each).
 
 ```bash
-uv run python examples/run_examples.py fetch      # webFetch demos only
-uv run python examples/run_examples.py search     # webSearch demos only
-uv run python examples/run_examples.py summarize  # webSummarize demos only
+uv run python examples/run_examples.py fetch      # fetchWebContent demos only
+uv run python examples/run_examples.py search     # searchWeb demos only
+uv run python examples/run_examples.py summarize  # summarizeWebContent demos only
 uv run python examples/run_examples.py all        # everything in sequence
 ```
 
 ### test_mcp.py
 
-End-to-end MCP client test that connects via the streamable-http transport and calls all three tools through the MCP protocol (JSON-RPC). Tests `webSearch` with each provider (miklium, tavily, brave, google), `webFetch`, and `webSummarize`.
+End-to-end MCP client test that connects via the streamable-http transport and calls all three tools through the MCP protocol (JSON-RPC). Tests `searchWeb` with each provider (miklium, tavily, brave, google), `fetchWebContent`, and `summarizeWebContent`.
 
 **How to Run:**
 
@@ -34,11 +34,11 @@ End-to-end MCP client test that connects via the streamable-http transport and c
 **Requirements:**
 - Server must be running on `http://localhost:8000` (or set `MCP_SERVER_PORT` env var)
 - Internet connection for making web requests
-- For `webSummarize`, configure LLM providers in `.env` (optional - search and fetch work without it)
+- For `summarizeWebContent`, configure LLM providers in `.env` (optional - search and fetch work without it)
 
 ### web_fetch_examples.py
 
-Direct-call examples importing the actual `webFetch` implementation from server.py. Each call fetches a single URL. No API keys needed.
+Direct-call examples importing the actual `fetchWebContent` implementation from server.py. Each call fetches a single URL. No API keys needed.
 
 1. **Basic Fetch** - Fetch a URL and display raw Markdown
 2. **Word Truncation** - `num_words=50` truncates output to 50 words
@@ -51,7 +51,7 @@ uv run python examples/web_fetch_examples.py
 
 ### web_search_examples.py
 
-Direct-call examples importing the actual `webSearch` implementation. Each call performs a single search with one provider. Supports a `--dry-run` flag to print search specs without making API calls, and positional provider arguments (e.g., `tavily`, `brave`, `google`).
+Direct-call examples importing the actual `searchWeb` implementation. Each call performs a single search with one provider. Supports a `--dry-run` flag to print search specs without making API calls, and positional provider arguments (e.g., `tavily`, `brave`, `google`).
 
 1. **Miklium Search** - Default, free provider (no API key required)
 2. **Tavily Search** - Requires `TAVILY_API_KEY`
@@ -72,7 +72,7 @@ uv run python examples/web_search_examples.py --dry-run    # print specs, no API
 
 ### web_summarize_examples.py
 
-Direct-call examples importing the actual `webSummarize` implementation. Each call summarizes a single URL. Requires LLM provider configuration.
+Direct-call examples importing the actual `summarizeWebContent` implementation. Each call summarizes a single URL. Requires LLM provider configuration.
 
 1. **Single URL** - Summarize one URL with `max_words_per_url=500`
 2. **Custom Summary Prompt** - Custom prompt guiding what the LLM extracts

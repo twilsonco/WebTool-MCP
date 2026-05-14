@@ -7,9 +7,9 @@ Usage:
     uv run python examples/run_examples.py [fetch|search|summarize|all]
 
 Examples:
-    uv run python examples/run_examples.py fetch     # Run webFetch examples
-    uv run python examples/run_examples.py search    # Run webSearch examples
-    uv run python examples/run_examples.py summarize # Run webSummarize examples
+    uv run python examples/run_examples.py fetch     # Run fetchWebContent examples
+    uv run python examples/run_examples.py search    # Run searchWeb examples
+    uv run python examples/run_examples.py summarize # Run summarizeWebContent examples
     uv run python examples/run_examples.py all       # Run everything
 """
 import os
@@ -26,9 +26,9 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         print("\nNo command specified. Available examples:")
-        print("  fetch     - webFetch tool demonstrations")
-        print("  search    - webSearch (Tavily/Brave/Google) demos")
-        print("  summarize - webSummarize with LLM inference demos")
+        print("  fetch     - fetchWebContent tool demonstrations")
+        print("  search    - searchWeb (Tavily/Brave/Google) demos")
+        print("  summarize - summarizeWebContent with LLM inference demos")
         sys.exit(1)
 
     command = sys.argv[1].lower()

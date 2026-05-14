@@ -1652,29 +1652,29 @@ class TestHTTPEndpoints:
     def test_mcp_tools_registered(self):
         from mcp_server.server import fastapi_mcp
         tool_names = [t.name for t in fastapi_mcp.tools]
-        assert "webSearch" in tool_names
-        assert "webFetch" in tool_names
-        assert "webSummarize" in tool_names
+        assert "searchWeb" in tool_names
+        assert "fetchWebContent" in tool_names
+        assert "summarizeWebContent" in tool_names
 
     def test_mcp_tools_exclude_health(self):
         from mcp_server.server import fastapi_mcp
         tool_names = [t.name for t in fastapi_mcp.tools]
         assert "health__get" not in tool_names
-        # Only 3 tools (webSearch, webFetch, webSummarize)
+        # Only 3 tools (searchWeb, fetchWebContent, summarizeWebContent)
         assert len(tool_names) == 3
 
     def test_mcp_tool_schemas(self):
         from mcp_server.server import fastapi_mcp
         tools_by_name = {t.name: t for t in fastapi_mcp.tools}
-        # webSearch has query as required
-        search_props = tools_by_name["webSearch"].inputSchema["properties"]
+        # searchWeb has query as required
+        search_props = tools_by_name["searchWeb"].inputSchema["properties"]
         assert "query" in search_props
         assert "provider" in search_props
-        # webFetch has url as required
-        fetch_props = tools_by_name["webFetch"].inputSchema["properties"]
+        # fetchWebContent has url as required
+        fetch_props = tools_by_name["fetchWebContent"].inputSchema["properties"]
         assert "url" in fetch_props
-        # webSummarize has url as required
-        summarize_props = tools_by_name["webSummarize"].inputSchema["properties"]
+        # summarizeWebContent has url as required
+        summarize_props = tools_by_name["summarizeWebContent"].inputSchema["properties"]
         assert "url" in summarize_props
 
     def test_auth_dependency_exists(self):
@@ -1686,5 +1686,5 @@ class TestHTTPEndpoints:
 
     def test_fastapi_app_routes(self, client):
         # POST routes accept query params (FastAPI default for simple-typed params)
-        resp = client.post("/webSearch?query=test")
+        resp = client.post("/searchWeb?query=test")
         assert resp.status_code == 200

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-webSearch examples - Demonstrates usage of the webSearch MCP tool.
+searchWeb examples - Demonstrates usage of the searchWeb MCP tool.
 This script imports and calls the actual implementation directly.
 Loads API keys from .env in project root.
 
@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementation from server.py
-from src.mcp_server.server import webSearch as real_web_search
+from src.mcp_server.server import searchWeb as real_web_search
 
 DRY_RUN = False
 
@@ -50,7 +50,7 @@ def dry_run_search(query: str, provider: str | None = None, title: str | None = 
         params["provider"] = provider
     extras = {k: v for k, v in kwargs.items() if v}
     params.update(extras)
-    print(f"  Would execute webSearch() with: {json.dumps(params)}")
+    print(f"  Would execute searchWeb() with: {json.dumps(params)}")
 
 
 def print_results(result: dict):
@@ -358,7 +358,7 @@ async def main(providers: list[str] | None = None):
         return
 
     print("\n" + "#" * 60)
-    print(f"# webSearch Examples (providers: {', '.join(providers_to_test)})")
+    print(f"# searchWeb Examples (providers: {', '.join(providers_to_test)})")
     print("#" * 60)
 
     # Run examples based on selected providers

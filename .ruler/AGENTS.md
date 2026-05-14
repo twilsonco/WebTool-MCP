@@ -51,11 +51,11 @@
 - Keep docstrings concise, descriptive, and aligned with existing triple-quoted module docstrings.
 
 ## Project-Specific Behavior
-- `webFetch` converts HTML to Markdown using `BeautifulSoup` + `markdownify` and supports regex filtering, padding, pagination, and link extraction.
+- `fetchWebContent` converts HTML to Markdown using `BeautifulSoup` + `markdownify` and supports regex filtering, padding, pagination, and link extraction.
 - `web_search` supports multiple providers with dynamic provider configuration via environment variables.
   - Provider order and availability are determined by: `miklium` (always enabled), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `GOOGLE_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID`.
   - Search functions should gracefully fail over to the next available provider and include `failover_attempts` when appropriate.
-- `webSummarize` uses `LLMManager` to perform multi-provider failover across OpenAI-compatible endpoints.
+- `summarizeWebContent` uses `LLMManager` to perform multi-provider failover across OpenAI-compatible endpoints.
 - `LLMManager` should load provider configs from `LLM_PROVIDER_{N}_*` environment variables and preserve priority order.
 
 ## Testing Expectations

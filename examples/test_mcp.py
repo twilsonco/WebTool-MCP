@@ -27,10 +27,10 @@ async def call_mcp_tool(session: ClientSession, tool_name: str, arguments: dict)
 
 
 async def test_web_search(session: ClientSession):
-    print("\nTesting webSearch (default provider - miklium)...")
+    print("\nTesting searchWeb (default provider - miklium)...")
     response = await call_mcp_tool(
         session,
-        "webSearch",
+        "searchWeb",
         {
             "query": "Python MCP server implementation",
             "num_results": 3
@@ -40,10 +40,10 @@ async def test_web_search(session: ClientSession):
 
 
 async def test_web_search_tavily(session: ClientSession):
-    print("\nTesting webSearch (tavily)...")
+    print("\nTesting searchWeb (tavily)...")
     response = await call_mcp_tool(
         session,
-        "webSearch",
+        "searchWeb",
         {
             "query": "Python async programming",
             "provider": "tavily",
@@ -54,10 +54,10 @@ async def test_web_search_tavily(session: ClientSession):
 
 
 async def test_web_search_brave(session: ClientSession):
-    print("\nTesting webSearch (brave)...")
+    print("\nTesting searchWeb (brave)...")
     response = await call_mcp_tool(
         session,
-        "webSearch",
+        "searchWeb",
         {
             "query": "FastMCP tutorial",
             "provider": "brave",
@@ -68,10 +68,10 @@ async def test_web_search_brave(session: ClientSession):
 
 
 async def test_web_search_google(session: ClientSession):
-    print("\nTesting webSearch (google)...")
+    print("\nTesting searchWeb (google)...")
     response = await call_mcp_tool(
         session,
-        "webSearch",
+        "searchWeb",
         {
             "query": "MCP protocol specification",
             "provider": "google",
@@ -82,10 +82,10 @@ async def test_web_search_google(session: ClientSession):
 
 
 async def test_web_fetch(session: ClientSession):
-    print("\nTesting webFetch...")
+    print("\nTesting fetchWebContent...")
     response = await call_mcp_tool(
         session,
-        "webFetch",
+        "fetchWebContent",
         {
             "url": "https://example.com",
             "num_words": 50
@@ -95,10 +95,10 @@ async def test_web_fetch(session: ClientSession):
 
 
 async def test_web_summarize(session: ClientSession):
-    print("\nTesting webSummarize...")
+    print("\nTesting summarizeWebContent...")
     response = await call_mcp_tool(
         session,
-        "webSummarize",
+        "summarizeWebContent",
         {
             "url": "https://example.com",
             "max_words_per_url": 300
