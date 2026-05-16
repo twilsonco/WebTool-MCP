@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent
-examples_dir = __file__.parent
+examples_dir = Path(__file__).parent
 
 sys.path.insert(0, str(project_root))
 

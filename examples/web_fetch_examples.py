@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementation functions from server.py
-from src.mcp_server.server import fetchWebContent as real_web_fetch
+from src.mcp_server.server import web_fetch as real_web_fetch
 
 
 def print_result(result: dict):

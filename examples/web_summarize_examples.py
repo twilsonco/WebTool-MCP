@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementations from server.py
-from src.mcp_server.server import summarizeWebContent as real_web_summarize
+from src.mcp_server.server import web_summarize as real_web_summarize
 
 
 async def example_single_url():

@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementation from server.py
-from src.mcp_server.server import searchWeb as real_web_search
+from src.mcp_server.server import web_search as real_web_search
 
 DRY_RUN = False
 
