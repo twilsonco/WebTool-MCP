@@ -46,24 +46,25 @@ def main():
         run_main()
 
     elif command == "all":
-        print("\n" + "#" * 60)
-        print("# Running All Examples")
-        print("#" * 60)
 
         from examples.web_fetch_examples import main as fetch_main
         from examples.web_search_examples import main as search_main
         from examples.web_summarize_examples import main as summarize_main
 
+        
+        print("\n" + "#" * 60)
+        print("# Running Fetch Examples")
+        print("#" * 60)
         fetch_main()
-        response = input("\nPress Enter to continue to search examples (or 'q' to quit)... ")
-        if response.lower() == 'q':
-            return
 
+        print("\n" + "#" * 60)
+        print("# Running Search Examples")
+        print("#" * 60)
         search_main()
-        response = input("\nPress Enter to continue to summarize examples (or 'q' to quit)... ")
-        if response.lower() == 'q':
-            return
 
+        print("\n" + "#" * 60)
+        print("# Running Summarize Examples")
+        print("#" * 60)
         summarize_main()
 
     else:
