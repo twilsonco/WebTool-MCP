@@ -107,7 +107,7 @@ def _get_configured_providers() -> list[str]:
 # These functions are called directly by tests and by the route wrappers below.
 
 
-async def web_search(
+async def search_web(
     query: str,
     provider: Optional[str] = None,
     num_results: int = 10,
@@ -376,7 +376,7 @@ Format output as clean Markdown with headers where appropriate.
 """
 
 
-async def web_summarize(
+async def summarize_web_content(
     url: str,
     summary_prompt: str = "",
     max_words_per_url: int = 800
@@ -393,7 +393,7 @@ async def web_summarize(
         Dict with 'url' and 'summary', or 'error' on fetch/LLM failure.
     """
     # Fetch content from the URL
-    fetch_result = await web_fetch(
+    fetch_result = await fetch_web_content(
         url,
         num_words=max_words_per_url,
         regex=None  # No filtering; full content for summarization
@@ -419,7 +419,7 @@ async def web_summarize(
         return {"url": url, "error": str(e)}
 
 
-async def web_fetch(
+async def fetch_web_content(
     url: str,
     include_links: bool = False,
     start_word: int = 0,
@@ -489,14 +489,14 @@ async def web_fetch(
     summary="Perform web search, general or with optional specified provider",
     dependencies=[Depends(_require_auth)],
 )
-async def api_web_search(
+async def api_search_web(
     query: str,
     provider: Optional[SearchProvider] = None,
     num_results: int = 10,
     days: int = 0,
     offset: int = 0,
 ) -> dict:
-    return await web_search(
+    return await search_web(
         query=query,
         provider=provider.value if provider else None,
         num_results=num_results,
@@ -512,7 +512,7 @@ async def api_web_search(
     summary="Fetch, convert to markdown, and/or filter via regex",
     dependencies=[Depends(_require_auth)],
 )
-async def api_web_fetch(
+async def api_fetch_web_content(
     url: str,
     include_links: bool = False,
     start_word: int = 0,
@@ -520,7 +520,7 @@ async def api_web_fetch(
     regex: Optional[str] = None,
     regex_padding: int = 50,
 ) -> dict:
-    return await web_fetch(
+    return await fetch_web_content(
         url=url,
         include_links=include_links,
         start_word=start_word,
@@ -537,12 +537,12 @@ async def api_web_fetch(
     summary="Fetch AI-summarized URL content via configured LLM",
     dependencies=[Depends(_require_auth)],
 )
-async def api_web_summarize(
+async def api_summarize_web_content(
     url: str,
     summary_prompt: str = "",
     max_words_per_url: int = 800,
 ) -> dict:
-    return await web_summarize(
+    return await summarize_web_content(
         url=url,
         summary_prompt=summary_prompt,
         max_words_per_url=max_words_per_url,

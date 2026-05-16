@@ -6,7 +6,7 @@ Loads API keys from .env in project root.
 Requires LLM_PROVIDER_1_* variables to be configured (multi-provider support).
 
 The atomic API summarizes one URL per call:
-    result = await real_web_summarize("https://example.com", max_words_per_url=500)
+    result = await real_summarize_web_content("https://example.com", max_words_per_url=500)
 
 Returns a dict with 'url' and 'summary', or 'error' on failure.
 """
@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementations from server.py
-from src.mcp_server.server import web_summarize as real_web_summarize
+from src.mcp_server.server import summarize_web_content as real_summarize_web_content
 
 
 async def example_single_url():
@@ -35,7 +35,7 @@ async def example_single_url():
     url = "https://blog.comma.ai/011release/"
 
     print(f"\nSummarizing {url}...")
-    result = await real_web_summarize(url, max_words_per_url=500)
+    result = await real_summarize_web_content(url, max_words_per_url=500)
 
     if "summary" in result:
         print(f"\nURL: {result['url']}")
@@ -63,7 +63,7 @@ Format as: ## Overview\n## Technical Details\n## Examples
 """.strip()
 
     print(f"\nSummarizing with custom technical prompt...")
-    result = await real_web_summarize(
+    result = await real_summarize_web_content(
         url,
         summary_prompt=custom_prompt,
         max_words_per_url=400

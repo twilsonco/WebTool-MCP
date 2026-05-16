@@ -171,7 +171,7 @@ Fetch a URL and convert to Markdown.
 
 **Example (Python):**
 ```python
-result = await web_fetch(
+result = await fetch_web_content(
     url="https://example.com",
     num_words=500,
     regex="important|match"
@@ -237,7 +237,7 @@ Execute a web search with automatic failover between configured providers.
 
 **Example (Python):**
 ```python
-result = await web_search(
+result = await search_web(
     query="Python async programming",
     provider="tavily",
     num_results=5

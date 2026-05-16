@@ -4,7 +4,7 @@ fetchWebContent examples - Demonstrates usage of the fetchWebContent MCP tool.
 This script imports and calls the actual implementation directly.
 
 The atomic API fetches one URL per call:
-    result = await real_web_fetch("https://example.com", num_words=500)
+    result = await real_fetch_web_content("https://example.com", num_words=500)
 
 Returns a dict with 'url' and 'content', or 'error' on failure.
 """
@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementation functions from server.py
-from src.mcp_server.server import web_fetch as real_web_fetch
+from src.mcp_server.server import fetch_web_content as real_fetch_web_content
 
 
 def print_result(result: dict):
@@ -42,7 +42,7 @@ async def example_basic():
     print("EXAMPLE 1: Basic Fetch")
     print("=" * 60)
 
-    result = await real_web_fetch("https://example.com")
+    result = await real_fetch_web_content("https://example.com")
     print_result(result)
 
 
@@ -52,7 +52,7 @@ async def example_with_truncation():
     print("EXAMPLE 2: Word Truncation")
     print("=" * 60)
 
-    result = await real_web_fetch("https://quotes.toscrape.com", num_words=50)
+    result = await real_fetch_web_content("https://quotes.toscrape.com", num_words=50)
 
     if "content" in result:
         word_count = len(result["content"].split())
@@ -70,7 +70,7 @@ async def example_with_regex():
     print("=" * 60)
 
     # Try different patterns - some may match, some not
-    result_no_match = await real_web_fetch("https://httpbin.org/html", regex=r"NONEXISTENT_PATTERN_XYZ", regex_padding=20)
+    result_no_match = await real_fetch_web_content("https://httpbin.org/html", regex=r"NONEXISTENT_PATTERN_XYZ", regex_padding=20)
     print(f"\nPattern 'NONEXISTENT_PATTERN_XYZ' on httpbin.org:")
     if "content" in result_no_match:
         print(f"  Result: {result_no_match['content']}")
@@ -78,7 +78,7 @@ async def example_with_regex():
         print_result(result_no_match)
 
     # Pattern that should match like "the" or "is"
-    result_matching = await real_web_fetch(
+    result_matching = await real_fetch_web_content(
         "https://httpbin.org/html",
         regex=r"the|is",
         regex_padding=30
@@ -99,8 +99,8 @@ async def example_start_offset():
 
     url = "https://httpbin.org/html"
 
-    first_100 = await real_web_fetch(url, num_words=20, start_word=0)
-    second_100 = await real_web_fetch(url, num_words=20, start_word=50)
+    first_100 = await real_fetch_web_content(url, num_words=20, start_word=0)
+    second_100 = await real_fetch_web_content(url, num_words=20, start_word=50)
 
     print(f"\n[{url}]")
     print("-" * 40)

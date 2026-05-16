@@ -26,7 +26,7 @@ async def call_mcp_tool(session: ClientSession, tool_name: str, arguments: dict)
     return {"content": content, "is_error": result.isError}
 
 
-async def test_web_search(session: ClientSession):
+async def test_search_web(session: ClientSession):
     print("\nTesting searchWeb (default provider - miklium)...")
     response = await call_mcp_tool(
         session,
@@ -39,7 +39,7 @@ async def test_web_search(session: ClientSession):
     print(json.dumps(response, indent=2))
 
 
-async def test_web_search_tavily(session: ClientSession):
+async def test_search_web_tavily(session: ClientSession):
     print("\nTesting searchWeb (tavily)...")
     response = await call_mcp_tool(
         session,
@@ -53,7 +53,7 @@ async def test_web_search_tavily(session: ClientSession):
     print(json.dumps(response, indent=2))
 
 
-async def test_web_search_brave(session: ClientSession):
+async def test_search_web_brave(session: ClientSession):
     print("\nTesting searchWeb (brave)...")
     response = await call_mcp_tool(
         session,
@@ -67,7 +67,7 @@ async def test_web_search_brave(session: ClientSession):
     print(json.dumps(response, indent=2))
 
 
-async def test_web_search_google(session: ClientSession):
+async def test_search_web_google(session: ClientSession):
     print("\nTesting searchWeb (google)...")
     response = await call_mcp_tool(
         session,
@@ -81,7 +81,7 @@ async def test_web_search_google(session: ClientSession):
     print(json.dumps(response, indent=2))
 
 
-async def test_web_fetch(session: ClientSession):
+async def test_fetch_web_content(session: ClientSession):
     print("\nTesting fetchWebContent...")
     response = await call_mcp_tool(
         session,
@@ -94,7 +94,7 @@ async def test_web_fetch(session: ClientSession):
     print(json.dumps(response, indent=2))
 
 
-async def test_web_summarize(session: ClientSession):
+async def test_summarize_web_content(session: ClientSession):
     print("\nTesting summarizeWebContent...")
     response = await call_mcp_tool(
         session,
@@ -112,12 +112,12 @@ async def main():
     async with streamable_http_client(BASE_URL) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
-            await test_web_search(session)
-            await test_web_search_tavily(session)
-            await test_web_search_brave(session)
-            await test_web_search_google(session)
-            await test_web_fetch(session)
-            await test_web_summarize(session)
+            await test_search_web(session)
+            await test_search_web_tavily(session)
+            await test_search_web_brave(session)
+            await test_search_web_google(session)
+            await test_fetch_web_content(session)
+            await test_summarize_web_content(session)
 
 
 if __name__ == "__main__":

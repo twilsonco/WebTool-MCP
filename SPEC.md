@@ -406,7 +406,7 @@ src/mcp_server/
            raise RuntimeError(str(e))
    ```
 
-4. **No changes to `web_summarize()` function signature or behavior** - it continues to call `_call_llm()` internally.
+4. **No changes to `summarize_web_content()` function signature or behavior** - it continues to call `_call_llm()` internally.
 
 ---
 

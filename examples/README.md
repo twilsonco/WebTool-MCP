@@ -36,7 +36,7 @@ End-to-end MCP client test that connects via the streamable-http transport and c
 - Internet connection for making web requests
 - For `summarizeWebContent`, configure LLM providers in `.env` (optional - search and fetch work without it)
 
-### web_fetch_examples.py
+### fetch_web_content_examples.py
 
 Direct-call examples importing the actual `fetchWebContent` implementation from server.py. Each call fetches a single URL. No API keys needed.
 
@@ -46,10 +46,10 @@ Direct-call examples importing the actual `fetchWebContent` implementation from 
 4. **Word Offset** - `start_word=0` vs `start_word=50` for pagination by word position
 
 ```bash
-uv run python examples/web_fetch_examples.py
+uv run python examples/fetch_web_content_examples.py
 ```
 
-### web_search_examples.py
+### search_web_examples.py
 
 Direct-call examples importing the actual `searchWeb` implementation. Each call performs a single search with one provider. Supports a `--dry-run` flag to print search specs without making API calls, and positional provider arguments (e.g., `tavily`, `brave`, `google`).
 
@@ -65,12 +65,12 @@ Direct-call examples importing the actual `searchWeb` implementation. Each call 
 10. **Config Check** - Prints which search API keys are SET vs NOT SET
 
 ```bash
-uv run python examples/web_search_examples.py              # all providers
-uv run python examples/web_search_examples.py tavily       # Tavily only
-uv run python examples/web_search_examples.py --dry-run    # print specs, no API calls
+uv run python examples/search_web_examples.py              # all providers
+uv run python examples/search_web_examples.py tavily       # Tavily only
+uv run python examples/search_web_examples.py --dry-run    # print specs, no API calls
 ```
 
-### web_summarize_examples.py
+### summarize_web_content_examples.py
 
 Direct-call examples importing the actual `summarizeWebContent` implementation. Each call summarizes a single URL. Requires LLM provider configuration.
 
@@ -80,7 +80,7 @@ Direct-call examples importing the actual `summarizeWebContent` implementation. 
 4. **Multi-Provider Failover** - Demonstrates multi-provider LLM failover (commented out in `main()` by default)
 
 ```bash
-uv run python examples/web_summarize_examples.py
+uv run python examples/summarize_web_content_examples.py
 ```
 
 Note: Examples 2-4 and 6 are commented out in `main()` by default since they make multiple LLM calls. Uncomment them as needed.

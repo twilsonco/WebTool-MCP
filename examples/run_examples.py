@@ -35,22 +35,22 @@ async def main():
     command = sys.argv[1].lower()
 
     if command == "fetch":
-        from examples.web_fetch_examples import main as run_main
+        from examples.fetch_web_content_examples import main as run_main
         await run_main()
 
     elif command == "search":
-        from examples.web_search_examples import main as run_main
+        from examples.search_web_examples import main as run_main
         await run_main()
 
     elif command == "summarize":
-        from examples.web_summarize_examples import main as run_main
+        from examples.summarize_web_content_examples import main as run_main
         await run_main()
 
     elif command == "all":
 
-        from examples.web_fetch_examples import main as fetch_main
-        from examples.web_search_examples import main as search_main
-        from examples.web_summarize_examples import main as summarize_main
+        from examples.fetch_web_content_examples import main as fetch_main
+        from examples.search_web_examples import main as search_main
+        from examples.summarize_web_content_examples import main as summarize_main
 
 
         print("\n" + "#" * 60)

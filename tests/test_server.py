@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 # Import from server module
 from src.mcp_server.server import (
-    web_fetch, web_search, web_summarize, _call_llm,
+    fetch_web_content, search_web, summarize_web_content, _call_llm,
     _get_configured_providers, _brave_freshness,
 )
 
 
 class TestWebFetch:
     @pytest.mark.asyncio
-    async def test_web_fetch_single_url_success(self):
+    async def test_fetch_web_content_single_url_success(self):
         html = "<html><body><h1>Test</h1><p>Content here.</p></body></html>"
 
         mock_response = MagicMock()
@@ -23,7 +23,7 @@ class TestWebFetch:
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch("https://example.com")
+            result = await fetch_web_content("https://example.com")
 
             assert "url" in result
             assert result["url"] == "https://example.com"
@@ -32,7 +32,7 @@ class TestWebFetch:
             assert any(word in content_lower for word in ["test", "content"])
 
     @pytest.mark.asyncio
-    async def test_web_fetch_with_regex_filter(self):
+    async def test_fetch_web_content_with_regex_filter(self):
         html = "<html><body>ERROR_CODE: 123 ERROR_TYPE: critical</body></html>"
 
         mock_response = MagicMock()
@@ -44,7 +44,7 @@ class TestWebFetch:
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch("https://example.com", regex="ERROR_", regex_padding=10)
+            result = await fetch_web_content("https://example.com", regex="ERROR_", regex_padding=10)
 
             assert "url" in result
             # Should have matched content or no-match message
@@ -52,7 +52,7 @@ class TestWebFetch:
                 assert len(result["content"]) > 0
 
     @pytest.mark.asyncio
-    async def test_web_fetch_word_truncation(self):
+    async def test_fetch_web_content_word_truncation(self):
         html = "<p>" + " ".join(["word"] * 200) + "</p>"
 
         mock_response = MagicMock()
@@ -64,13 +64,13 @@ class TestWebFetch:
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch("https://example.com", num_words=50)
+            result = await fetch_web_content("https://example.com", num_words=50)
 
             words = result["content"].split()
             assert len(words) <= 55  # Allow small margin for markdown conversion overhead
 
     @pytest.mark.asyncio
-    async def test_web_fetch_http_error(self):
+    async def test_fetch_web_content_http_error(self):
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
             error_resp = MagicMock()
@@ -78,12 +78,12 @@ class TestWebFetch:
             instance.get.return_value = error_resp
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch("https://example.com/notfound")
+            result = await fetch_web_content("https://example.com/notfound")
 
             assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_web_fetch_regex_no_match(self):
+    async def test_fetch_web_content_regex_no_match(self):
         html = "<p>No errors here, just normal content.</p>"
 
         mock_response = MagicMock()
@@ -95,13 +95,13 @@ class TestWebFetch:
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await web_fetch("https://example.com", regex="NONEXISTENT_PATTERN_", regex_padding=10)
+            result = await fetch_web_content("https://example.com", regex="NONEXISTENT_PATTERN_", regex_padding=10)
 
             assert "content" in result
             assert "No matches found" in result["content"]
 
     @pytest.mark.asyncio
-    async def test_web_fetch_include_links(self):
+    async def test_fetch_web_content_include_links(self):
         html = '<html><body><a href="https://link.com">Click here</a> and <a href="https://other.com">Other</a></body></html>'
 
         mock_response = MagicMock()
@@ -114,9 +114,9 @@ class TestWebFetch:
             mock_client.return_value.__aenter__.return_value = instance
 
             # With include_links=True, anchor tags should be preserved
-            result_with = await web_fetch("https://example.com", include_links=True)
+            result_with = await fetch_web_content("https://example.com", include_links=True)
             # With include_links=False (default), anchor tags are unwrapped
-            result_without = await web_fetch("https://example.com", include_links=False)
+            result_without = await fetch_web_content("https://example.com", include_links=False)
 
         # Both should return valid results with url and content
         assert "url" in result_with
@@ -125,7 +125,7 @@ class TestWebFetch:
         assert "content" in result_without
 
     @pytest.mark.asyncio
-    async def test_web_fetch_start_word_pagination(self):
+    async def test_fetch_web_content_start_word_pagination(self):
         html = "<p>" + " ".join([f"word{i}" for i in range(100)]) + "</p>"
 
         mock_response = MagicMock()
@@ -138,9 +138,9 @@ class TestWebFetch:
             mock_client.return_value.__aenter__.return_value = instance
 
             # Page 1: words 0-9
-            result_page1 = await web_fetch("https://example.com", start_word=0, num_words=10)
+            result_page1 = await fetch_web_content("https://example.com", start_word=0, num_words=10)
             # Page 2: words 50-59
-            result_page2 = await web_fetch("https://example.com", start_word=50, num_words=10)
+            result_page2 = await fetch_web_content("https://example.com", start_word=50, num_words=10)
 
         content_page1 = result_page1["content"]
         content_page2 = result_page2["content"]
@@ -148,7 +148,7 @@ class TestWebFetch:
         assert content_page1 != content_page2
 
     @pytest.mark.asyncio
-    async def test_web_fetch_regex_padding(self):
+    async def test_fetch_web_content_regex_padding(self):
         # Use a pattern without underscores (markdownify escapes underscores)
         html = "<p>prefix content CRITICAL: 123 suffix content more text</p>"
 
@@ -162,9 +162,9 @@ class TestWebFetch:
             mock_client.return_value.__aenter__.return_value = instance
 
             # Small padding: minimal context around match
-            result_small = await web_fetch("https://example.com", regex="CRITICAL", regex_padding=5)
+            result_small = await fetch_web_content("https://example.com", regex="CRITICAL", regex_padding=5)
             # Large padding: more context around match
-            result_large = await web_fetch("https://example.com", regex="CRITICAL", regex_padding=100)
+            result_large = await fetch_web_content("https://example.com", regex="CRITICAL", regex_padding=100)
 
         content_small = result_small["content"]
         content_large = result_large["content"]
@@ -192,7 +192,7 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test query", provider="tavily")
+                result = await search_web("test query", provider="tavily")
 
                 assert result["provider"] == "tavily"
                 assert len(result["results"]) == 1
@@ -210,7 +210,7 @@ class TestWebSearch:
                 return default
             mock_getenv.side_effect = get_env
 
-            result = await web_search("test", provider="tavily")
+            result = await search_web("test", provider="tavily")
 
             # With miklium always available, the search should still run via failover
             if "error" in result:
@@ -236,7 +236,7 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="brave")
+                result = await search_web("test", provider="brave")
 
                 assert result["provider"] == "brave"
                 assert len(result["results"]) == 1
@@ -265,7 +265,7 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="google")
+                result = await search_web("test", provider="google")
 
                 assert result["provider"] == "google"
                 assert len(result["results"]) == 1
@@ -276,7 +276,7 @@ class TestWebSearch:
         with patch("src.mcp_server.server.os.getenv") as mock_getenv:
             # Return a fake key so at least one provider is "configured"
             mock_getenv.return_value = "fake_key"
-            result = await web_search("test", provider="unknown")
+            result = await search_web("test", provider="unknown")
 
             # With unknown provider, it should try configured providers and fail or use failover
 
@@ -301,7 +301,7 @@ class TestWebSearch:
                 instance.get.return_value = get_error
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="tavily")
+                result = await search_web("test", provider="tavily")
 
                 # Either error in the result directly or failover_attempts with errors
                 has_error = "error" in result or ("failover_attempts" in result and any("error" in a for a in result["failover_attempts"]))
@@ -319,7 +319,7 @@ class TestWebSearch:
                 return default
             mock_getenv.side_effect = get_env
 
-            result = await web_search("test", provider="brave")
+            result = await search_web("test", provider="brave")
 
             # With miklium always available, brave-specific key not being set means
             # it fails over to miklium
@@ -338,7 +338,7 @@ class TestWebSearch:
                 return default
             mock_getenv.side_effect = get_env
 
-            result = await web_search("test", provider="google")
+            result = await search_web("test", provider="google")
 
             # With miklium always available, google-specific keys not being set means
             # it fails over to miklium
@@ -364,7 +364,7 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="tavily", num_results=3)
+                result = await search_web("test", provider="tavily", num_results=3)
 
                 # Should be limited to requested count (max 20, but we asked for 3)
                 assert len(result["results"]) <= 3
@@ -393,7 +393,7 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test query")
+                result = await search_web("test query")
 
                 assert result["provider"] == "miklium"
                 assert len(result["results"]) >= 1
@@ -416,7 +416,7 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test")
+                result = await search_web("test")
 
                 assert "error" in result
 
@@ -425,7 +425,7 @@ class TestWebSearch:
         with patch("src.mcp_server.server.os.getenv") as mock_getenv:
             mock_getenv.return_value = "fake_key"
 
-            result = await web_search("")
+            result = await search_web("")
 
         assert "error" in result
         assert "Missing required field: query" in result["error"]
@@ -448,7 +448,7 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="tavily", days=7)
+                result = await search_web("test", provider="tavily", days=7)
 
                 # Verify the payload included start_date (computed from days)
                 call_args = instance.post.call_args
@@ -473,7 +473,7 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="tavily", days=0)
+                result = await search_web("test", provider="tavily", days=0)
 
                 call_args = instance.post.call_args
                 json_payload = call_args.kwargs["json"]
@@ -500,7 +500,7 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="brave", offset=10)
+                result = await search_web("test", provider="brave", offset=10)
 
                 # Verify offset was passed to the API call
                 call_args = instance.get.call_args
@@ -541,7 +541,7 @@ class TestWebSearch:
                 instance.post.side_effect = [tavily_error, miklium_response]
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="tavily")
+                result = await search_web("test", provider="tavily")
 
                 # Should either failover to miklium or report error with failover_attempts
                 if "results" in result and len(result["results"]) > 0:
@@ -559,7 +559,7 @@ class TestWebSearch:
                 return default
             mock_getenv.side_effect = get_env
 
-            result = await web_search("test", provider="unknown")
+            result = await search_web("test", provider="unknown")
 
         # Unknown provider should not be in configured_providers, so it gets skipped
         # and failover to miklium should work or produce an error
@@ -598,7 +598,7 @@ class TestWebSearch:
                 instance.get.return_value = brave_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="tavily")
+                result = await search_web("test", provider="tavily")
 
                 # Should have results (from failover to brave or miklium)
                 if "results" in result and len(result["results"]) > 0:
@@ -631,7 +631,7 @@ class TestWebSearch:
                 instance.get.return_value = get_error
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="tavily")
+                result = await search_web("test", provider="tavily")
 
         # Should have error in result
         assert "error" in result
@@ -653,7 +653,7 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="brave", days=7)
+                result = await search_web("test", provider="brave", days=7)
 
                 call_args = instance.get.call_args
                 params = call_args.kwargs["params"]
@@ -683,7 +683,7 @@ class TestWebSearch:
                 instance.get.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test", provider="google", offset=5)
+                result = await search_web("test", provider="google", offset=5)
 
                 call_args = instance.get.call_args
                 params = call_args.kwargs["params"]
@@ -697,7 +697,7 @@ class TestWebSearch:
         from src.mcp_server.server import _search_miklium
 
         result = await _search_miklium("test query", 10)
-        # Should succeed (empty string would be caught by web_search, not _search_miklium)
+        # Should succeed (empty string would be caught by search_web, not _search_miklium)
         assert "error" in result or "results" in result
 
     @pytest.mark.asyncio
@@ -773,7 +773,7 @@ class TestWebSearch:
                 instance.post.return_value = mock_response
                 mock_client.return_value.__aenter__.return_value = instance
 
-                result = await web_search("test")
+                result = await search_web("test")
 
         # Should produce an error about miklium failure
         if "error" in result:
@@ -806,7 +806,7 @@ class TestWebSearch:
                 mock_client.return_value.__aenter__.return_value = instance
 
                 # No provider specified - defaults to miklium (first configured)
-                result = await web_search("test")
+                result = await search_web("test")
 
         # Default search goes to miklium since it's first in configured providers
 
@@ -818,7 +818,7 @@ class TestWebSearch:
             # but we test the defensive code path)
             mock_prov.return_value = []
 
-            result = await web_search("test", provider="tavily")
+            result = await search_web("test", provider="tavily")
 
         # Should produce error since no providers available for non-miklium search
         assert "error" in result or ("results" not in result)
@@ -843,7 +843,7 @@ class TestWebSearch:
                 mock_client.return_value.__aenter__.return_value = instance
 
                 # Request fake_provider specifically (will fail), then failover hits it
-                result = await web_search("test", provider="fake_provider")
+                result = await search_web("test", provider="fake_provider")
 
         # Should produce an error since fake_provider has no handler
 
@@ -858,7 +858,7 @@ class TestWebSearch:
             mock_getenv.side_effect = get_env
 
             # Search with explicit non-miklium provider but empty query
-            result = await web_search("", provider="tavily")
+            result = await search_web("", provider="tavily")
 
         # The empty query should produce a "Missing required field: query" error
         assert "error" in result
@@ -963,9 +963,9 @@ class TestWebSummarize:
     async def test_summarize_single_url(self):
         fetch_result = {"url": "https://example.com", "content": "This is the actual content from the webpage with details."}
 
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
+        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="## Summary\n\nKey points extracted.")):
-                result = await web_summarize("https://example.com")
+                result = await summarize_web_content("https://example.com")
 
                 assert "url" in result
                 assert result["url"] == "https://example.com"
@@ -976,9 +976,9 @@ class TestWebSummarize:
     async def test_summarize_custom_prompt(self):
         fetch_result = {"url": "https://example.com", "content": "Content for custom analysis."}
 
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
+        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Custom summary")):
-                result = await web_summarize(
+                result = await summarize_web_content(
                     "https://example.com",
                     summary_prompt="Focus on technical specifications only."
                 )
@@ -990,8 +990,8 @@ class TestWebSummarize:
     async def test_summarize_fetch_error(self):
         fetch_result = {"url": "https://error.com", "error": "Error: Failed to connect to server"}
 
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
-            result = await web_summarize("https://error.com")
+        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
+            result = await summarize_web_content("https://error.com")
 
             assert "url" in result
             # Error content should be captured with error key
@@ -1004,9 +1004,9 @@ class TestWebSummarize:
         async def mock_llm_error(prompt, system_prompt=None):
             raise RuntimeError("LLM API Error: 503 Service Unavailable")
 
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
+        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", side_effect=mock_llm_error):
-                result = await web_summarize("https://example.com")
+                result = await summarize_web_content("https://example.com")
 
                 assert "error" in result
 
@@ -1014,9 +1014,9 @@ class TestWebSummarize:
     async def test_summarize_max_words(self):
         fetch_result = {"url": "https://example.com", "content": "x " * 1500}
 
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
+        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Summary")):
-                result = await web_summarize("https://example.com", max_words_per_url=100)
+                result = await summarize_web_content("https://example.com", max_words_per_url=100)
 
                 assert "url" in result
 
@@ -1024,8 +1024,8 @@ class TestWebSummarize:
     async def test_summarize_no_matches_content(self):
         fetch_result = {"url": "https://example.com", "content": "No matches found for regex."}
 
-        with patch("src.mcp_server.server.web_fetch", AsyncMock(return_value=fetch_result)):
-            result = await web_summarize("https://example.com")
+        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
+            result = await summarize_web_content("https://example.com")
 
         assert "url" in result
         # "No matches" content should be captured as error

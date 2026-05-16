@@ -5,7 +5,7 @@ This script imports and calls the actual implementation directly.
 Loads API keys from .env in project root.
 
 The atomic API accepts individual search parameters:
-    result = await real_web_search("query", provider="tavily", num_results=5)
+    result = await real_search_web("query", provider="tavily", num_results=5)
 
 Each call supports:
     - query (str): The search query string (required)
@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementation from server.py
-from src.mcp_server.server import web_search as real_web_search
+from src.mcp_server.server import search_web as real_search_web
 
 DRY_RUN = False
 
@@ -86,7 +86,7 @@ async def example_miklium():
         dry_run_search("Python MCP server implementation", title="Miklium Search")
         return
 
-    result = await real_web_search("Python MCP server implementation", num_results=3)
+    result = await real_search_web("Python MCP server implementation", num_results=3)
     print_results(result)
 
 
@@ -104,7 +104,7 @@ async def example_tavily():
         dry_run_search("Python asyncio tutorial", provider="tavily", title="Tavily Search")
         return
 
-    result = await real_web_search("Python asyncio tutorial", provider="tavily", num_results=3)
+    result = await real_search_web("Python asyncio tutorial", provider="tavily", num_results=3)
     print_results(result)
 
 
@@ -122,7 +122,7 @@ async def example_brave():
         dry_run_search("Python asyncio tutorial", provider="brave", title="Brave Search")
         return
 
-    result = await real_web_search("Python asyncio tutorial", provider="brave", num_results=5)
+    result = await real_search_web("Python asyncio tutorial", provider="brave", num_results=5)
     print_results(result)
 
 
@@ -140,7 +140,7 @@ async def example_google():
         dry_run_search("Python asyncio tutorial", provider="google", title="Google Search")
         return
 
-    result = await real_web_search("Python asyncio tutorial", provider="google", num_results=5)
+    result = await real_search_web("Python asyncio tutorial", provider="google", num_results=5)
     print_results(result)
 
 
@@ -174,14 +174,14 @@ async def example_date_filtering():
         if DRY_RUN:
             dry_run_search("Python asyncio tutorial", provider="tavily", days=num_days)
         else:
-            result = await real_web_search("Python asyncio tutorial", provider="tavily", num_results=3, days=num_days)
+            result = await real_search_web("Python asyncio tutorial", provider="tavily", num_results=3, days=num_days)
             print_results(result)
 
     if has_brave:
         if DRY_RUN:
             dry_run_search("Python asyncio tutorial", provider="brave", days=num_days)
         else:
-            result = await real_web_search("Python asyncio tutorial", provider="brave", num_results=3, days=num_days)
+            result = await real_search_web("Python asyncio tutorial", provider="brave", num_results=3, days=num_days)
             print_results(result)
 
 
@@ -215,7 +215,7 @@ async def example_date_filtering_options():
         if DRY_RUN:
             dry_run_search("Python tutorial", provider="brave", num_results=2, days=days)
         else:
-            result = await real_web_search("Python tutorial", provider="brave", num_results=2, days=days)
+            result = await real_search_web("Python tutorial", provider="brave", num_results=2, days=days)
             print(f"\n--- {label} (days={days}, freshness='{code}') ---")
             print_results(result)
 
@@ -240,10 +240,10 @@ async def example_offset_pagination():
             dry_run_search("Python tutorial", provider="brave", num_results=3, offset=0)
             dry_run_search("Python tutorial", provider="brave", num_results=3, offset=3)
         else:
-            result_p1 = await real_web_search("Python tutorial", provider="brave", num_results=3, offset=0)
+            result_p1 = await real_search_web("Python tutorial", provider="brave", num_results=3, offset=0)
             print(f"\n--- Brave Page 1 (offset=0) ---")
             print_results(result_p1)
-            result_p2 = await real_web_search("Python tutorial", provider="brave", num_results=3, offset=3)
+            result_p2 = await real_search_web("Python tutorial", provider="brave", num_results=3, offset=3)
             print(f"\n--- Brave Page 2 (offset=3) ---")
             print_results(result_p2)
 
@@ -252,10 +252,10 @@ async def example_offset_pagination():
             dry_run_search("Python tutorial", provider="google", num_results=5, offset=0)
             dry_run_search("Python tutorial", provider="google", num_results=5, offset=5)
         else:
-            result_p1 = await real_web_search("Python tutorial", provider="google", num_results=5, offset=0)
+            result_p1 = await real_search_web("Python tutorial", provider="google", num_results=5, offset=0)
             print(f"\n--- Google Page 1 (offset=0) ---")
             print_results(result_p1)
-            result_p2 = await real_web_search("Python tutorial", provider="google", num_results=5, offset=5)
+            result_p2 = await real_search_web("Python tutorial", provider="google", num_results=5, offset=5)
             print(f"\n--- Google Page 2 (offset=5) ---")
             print_results(result_p2)
 
@@ -278,7 +278,7 @@ async def example_google_ignores_days():
         dry_run_search("Python asyncio tutorial", provider="google", num_results=5, days=7)
         return
 
-    result = await real_web_search("Python asyncio tutorial", provider="google", num_results=5, days=7)
+    result = await real_search_web("Python asyncio tutorial", provider="google", num_results=5, days=7)
     # Note: result will NOT have days field since Google doesn't support it
     print_results(result)
 
@@ -295,7 +295,7 @@ async def example_error_handling():
     if DRY_RUN:
         dry_run_search("test", provider="unknown_provider")
     else:
-        result = await real_web_search("test", provider="unknown_provider")
+        result = await real_search_web("test", provider="unknown_provider")
         print_results(result)
 
     # Test with missing query - should return error
@@ -304,7 +304,7 @@ async def example_error_handling():
     if DRY_RUN:
         dry_run_search("")
     else:
-        result = await real_web_search("")
+        result = await real_search_web("")
         print_results(result)
 
 

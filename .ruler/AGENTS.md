@@ -52,7 +52,7 @@
 
 ## Project-Specific Behavior
 - `fetchWebContent` converts HTML to Markdown using `BeautifulSoup` + `markdownify` and supports regex filtering, padding, pagination, and link extraction.
-- `web_search` supports multiple providers with dynamic provider configuration via environment variables.
+- `search_web` supports multiple providers with dynamic provider configuration via environment variables.
   - Provider order and availability are determined by: `miklium` (always enabled), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `GOOGLE_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID`.
   - Search functions should gracefully fail over to the next available provider and include `failover_attempts` when appropriate.
 - `summarizeWebContent` uses `LLMManager` to perform multi-provider failover across OpenAI-compatible endpoints.
