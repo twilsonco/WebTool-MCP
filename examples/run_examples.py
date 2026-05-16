@@ -12,6 +12,7 @@ Examples:
     uv run python examples/run_examples.py summarize # Run summarizeWebContent examples
     uv run python examples/run_examples.py all       # Run everything
 """
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -22,7 +23,7 @@ examples_dir = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 
-def main():
+async def main():
     if len(sys.argv) < 2:
         print(__doc__)
         print("\nNo command specified. Available examples:")
@@ -35,15 +36,15 @@ def main():
 
     if command == "fetch":
         from examples.web_fetch_examples import main as run_main
-        run_main()
+        await run_main()
 
     elif command == "search":
         from examples.web_search_examples import main as run_main
-        run_main()
+        await run_main()
 
     elif command == "summarize":
         from examples.web_summarize_examples import main as run_main
-        run_main()
+        await run_main()
 
     elif command == "all":
 
@@ -51,21 +52,21 @@ def main():
         from examples.web_search_examples import main as search_main
         from examples.web_summarize_examples import main as summarize_main
 
-        
+
         print("\n" + "#" * 60)
         print("# Running Fetch Examples")
         print("#" * 60)
-        fetch_main()
+        await fetch_main()
 
         print("\n" + "#" * 60)
         print("# Running Search Examples")
         print("#" * 60)
-        search_main()
+        await search_main()
 
         print("\n" + "#" * 60)
         print("# Running Summarize Examples")
         print("#" * 60)
-        summarize_main()
+        await summarize_main()
 
     else:
         print(f"Unknown command: {command}")
@@ -74,4 +75,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
