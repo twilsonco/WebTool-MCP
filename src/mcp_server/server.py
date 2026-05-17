@@ -11,26 +11,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi_mcp import FastApiMCP
 
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
-from markdownify import markdownify as md
 
 from mcp_server.auth import StaticTokenVerifier, load_api_keys_from_env
 from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
-try:
-    from mcp_server.llm.parser import (
-        is_docling_supported_url,
-        parse_with_docling,
-        parse_html_with_beautifulsoup,
-        extract_text_from_markdown,
-    )
-except ImportError:
-    # Fallback for when running directly without package install
-    from mcp_server.llm.parser import (
-        is_docling_supported_url,
-        parse_with_docling,
-        parse_html_with_beautifulsoup,
-        extract_text_from_markdown,
-    )
+from mcp_server.llm.parser import (
+    is_docling_supported_url,
+    parse_with_docling,
+    parse_html_with_beautifulsoup
+)
 
 load_dotenv()
 
@@ -476,11 +464,7 @@ async def fetch_web_content(
                 docling_result = await parse_with_docling(content_bytes, file_ext, include_links)
                 
                 if docling_result:
-                    # Only extract plain text when include_links is False
-                    if include_links:
-                        content = docling_result  # Already markdown with links preserved
-                    else:
-                        content = extract_text_from_markdown(docling_result)
+                    content = docling_result
                 else:
                     # Docling failed, try BeautifulSoup as fallback for text-based formats
                     content = await parse_html_with_beautifulsoup(resp.text, include_links)
