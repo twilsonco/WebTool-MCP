@@ -52,6 +52,12 @@ async def example_basic():
 
     result = await real_fetch_web_content("https://example.com", include_links=True)
     print_result(result)
+    
+    # Then without links
+    print("\n" + "-" * 60)
+    print("Without links:")
+    result_no_links = await real_fetch_web_content("https://example.com", include_links=False)
+    print_result(result_no_links)
 
 
 async def example_with_truncation():

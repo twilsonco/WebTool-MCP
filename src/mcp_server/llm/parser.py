@@ -137,8 +137,7 @@ async def parse_with_docling(
                 from markdownify import markdownify as md
                 return md(html_content)
             else:
-                return result.document.export_to_markdown()
-        
+                # Remove links 
         return None
     except Exception:
         # Docling parsing failed, will fall back to other methods
