@@ -169,8 +169,8 @@ async def example_docling_pdf_fetch():
         print("-" * 40)
         content = result.get("content", "")
         if content:
-            print(f"Content preview (first 500 chars):")
-            print(content[:500] + ("..." if len(content) > 500 else ""))
+            print(f"Full PDF content:")
+            print(content)
         else:
             print("No content extracted")
 

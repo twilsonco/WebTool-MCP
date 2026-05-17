@@ -16,11 +16,8 @@ from typing import Optional, Set
 
 # Docling imports for document parsing
 try:
-    from docling.datamodel.base_models import InputFormat
-    from docling.datamodel.document import InputDocument
-    from docling.document_converter import DocumentConverter, PdfFormatOption
-    from docling.backend.pypdf_backend import PyPdfDocumentBackend
-    from docling.backend.markdown_backend import MarkdownBackend
+    from docling.datamodel.base_models import InputFormat, DocumentStream
+    from docling.document_converter import DocumentConverter
     
     DOCLING_AVAILABLE = True
 except ImportError:
@@ -100,28 +97,23 @@ async def parse_with_docling(
         return None
     
     try:
-        # Initialize the document converter with appropriate backend
-        if file_extension.lower() == ".pdf":
-            # Use PyPDF for PDF files
-            converter = DocumentConverter(
-                format_options={
-                    InputFormat.PDF: PdfFormatOption(
-                        backend=PyPdfDocumentBackend,
-                    )
-                }
-            )
-        else:
-            # Use default converter for other formats
-            converter = DocumentConverter()
+        # Initialize the document converter (use default settings)
+        converter = DocumentConverter()
         
-        # Create an input document from the binary content
-        doc = converter.convert(
-            source=io.BytesIO(content),
+        # Create a DocumentStream from the binary content
+        doc_stream = DocumentStream(
+            name=f"document{file_extension}",
+            stream=io.BytesIO(content),
+        )
+        
+        # Convert the document - returns a single ConversionResult
+        result = converter.convert(
+            source=doc_stream,
             raises_on_error=False,
         )
         
-        if doc and doc.export_to_markdown():
-            return doc.export_to_markdown()
+        if result and hasattr(result, 'document') and result.document:
+            return result.document.export_to_markdown()
         
         return None
     except Exception:
