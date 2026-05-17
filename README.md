@@ -10,14 +10,19 @@ The server is built with:
 - **MCP SDK** for the protocol implementation
 - **httpx** for async HTTP requests (no browser automation)
 - **BeautifulSoup** and **markdownify** for HTML-to-Markdown conversion
+- **[Docling](https://github.com/docling-project/docling)** for multi-format document parsing (PDF, DOCX, PPTX, XLSX, images, and more)
 - OpenAI-compatible LLM endpoints for summarization
 
 ## Tools/Functions
 
 ### fetchWebContent
-Fetch URLs and convert HTML content to Markdown format with optional filtering and pagination.
+Fetch URLs and convert content to Markdown format with optional filtering and pagination.
 
 - Convert HTML pages to clean Markdown suitable for LLMs
+- **Multi-format document parsing via Docling** - supports 16+ formats:
+  - Documents: PDF, DOCX, PPTX, XLSX
+  - Images: PNG, JPG, JPEG, TIFF, BMP
+  - Other formats: Markdown, CSV, JSON, XML, HTML
 - Regex-based content filtering with configurable padding
 - Word-level truncation and pagination via `start_word` and `num_words`
 - Optional extraction of links from fetched pages

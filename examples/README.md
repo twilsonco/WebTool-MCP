@@ -44,10 +44,17 @@ Direct-call examples importing the actual `fetchWebContent` implementation from 
 2. **Word Truncation** - `num_words=50` truncates output to 50 words
 3. **Regex Filtering** - `regex="the|is"` with `regex_padding=30` for context around matches
 4. **Word Offset** - `start_word=0` vs `start_word=50` for pagination by word position
+5. **Docling Document Formats** - Demonstrates multi-format document parsing (PDF, DOCX, PPTX, XLSX, images)
+6. **Docling Fallback Behavior** - Shows how the system falls back to BeautifulSoup when Docling is unavailable
 
 ```bash
 uv run python examples/fetch_web_content_examples.py
 ```
+
+**Docling Integration:**
+- `fetchWebContent` automatically detects and parses supported document formats using Docling
+- Supported formats: PDF, DOCX, PPTX, XLSX, PNG, JPG, TIFF, BMP, MD, CSV, JSON, XML, HTML
+- Falls back to BeautifulSoup for regular web pages when Docling is not applicable or fails
 
 ### search_web_examples.py
 

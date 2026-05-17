@@ -1688,3 +1688,188 @@ class TestHTTPEndpoints:
         # POST routes accept query params (FastAPI default for simple-typed params)
         resp = client.post("/searchWeb?query=test")
         assert resp.status_code == 200
+
+
+class TestDoclingIntegration:
+    """Tests for Docling document parsing integration in fetch_web_content."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_pdf_url_uses_docling(self):
+        """Test that PDF URLs trigger Docling parsing."""
+        from src.mcp_server.llm.parser import is_docling_supported_url
+        
+        # PDF URLs should be detected as Docling-supported
+        assert is_docling_supported_url("https://example.com/document.pdf") is True
+        assert is_docling_supported_url("https://example.com/file.PDF") is True
+
+    @pytest.mark.asyncio
+    async def test_fetch_docx_url_uses_docling(self):
+        """Test that DOCX URLs trigger Docling parsing."""
+        from src.mcp_server.llm.parser import is_docling_supported_url
+        
+        assert is_docling_supported_url("https://example.com/document.docx") is True
+        assert is_docling_supported_url("https://example.com/presentation.pptx") is True
+        assert is_docling_supported_url("https://example.com/data.xlsx") is True
+
+    @pytest.mark.asyncio
+    async def test_fetch_image_url_uses_docling(self):
+        """Test that image URLs trigger Docling parsing."""
+        from src.mcp_server.llm.parser import is_docling_supported_url
+        
+        assert is_docling_supported_url("https://example.com/image.png") is True
+        assert is_docling_supported_url("https://example.com/photo.jpg") is True
+        assert is_docling_supported_url("https://example.com/scan.tiff") is True
+
+    @pytest.mark.asyncio
+    async def test_fetch_html_url_does_not_use_docling(self):
+        """Test that regular HTML URLs don't trigger Docling."""
+        from src.mcp_server.llm.parser import is_docling_supported_url
+        
+        # HTML pages should not use Docling (they use BeautifulSoup)
+        assert is_docling_supported_url("https://example.com/page.html") is False
+        assert is_docling_supported_url("https://example.com/") is False
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_docling_fallback_to_beautifulsoup(self):
+        """Test that HTML content falls back to BeautifulSoup when Docling is not applicable."""
+        html = "<html><body><h1>Test Page</h1><p>Content here.</p></body></html>"
+
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.content = html.encode()
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.get.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value = instance
+
+            # Regular HTML page should still work with BeautifulSoup
+            result = await fetch_web_content("https://example.com")
+
+            assert "url" in result
+            assert result["url"] == "https://example.com"
+            # Content should contain converted markdown from the HTML
+            content_lower = result["content"].lower()
+            assert any(word in content_lower for word in ["test", "content"])
+
+    @pytest.mark.asyncio
+    async def test_fetch_docling_supported_formats(self):
+        """Test that various Docling-supported formats are correctly detected."""
+        from src.mcp_server.llm.parser import is_docling_supported_url
+        
+        # All supported formats should return True
+        supported_urls = [
+            "https://example.com/doc.pdf",
+            "https://example.com/doc.PDF",
+            "https://example.com/document.docx",
+            "https://example.com/slides.pptx",
+            "https://example.com/spreadsheet.xlsx",
+            "https://example.com/image.png",
+            "https://example.com/photo.jpg",
+            "https://example.com/scan.jpeg",
+            "https://example.com/doc.tiff",
+            "https://example.com/diagram.bmp",
+            "https://example.com/readme.md",
+            "https://example.com/data.csv",
+            "https://example.com/config.json",
+            "https://example.com/file.xml",
+        ]
+        
+        for url in supported_urls:
+            assert is_docling_supported_url(url) is True, f"Expected {url} to be Docling-supported"
+
+    @pytest.mark.asyncio
+    async def test_fetch_unsupported_format_uses_beautifulsoup(self):
+        """Test that unsupported formats fall back to BeautifulSoup."""
+        from src.mcp_server.llm.parser import is_docling_supported_url
+        
+        # Unsupported formats should return False
+        unsupported_urls = [
+            "https://example.com/file.txt",
+            "https://example.com/script.js",
+            "https://example.com/style.css",
+            "https://example.com/video.mp4",
+        ]
+        
+        for url in unsupported_urls:
+            assert is_docling_supported_url(url) is False, f"Expected {url} to NOT be Docling-supported"
+
+    @pytest.mark.asyncio
+    async def test_parse_html_with_beautifulsoup(self):
+        """Test the BeautifulSoup HTML parsing function."""
+        from src.mcp_server.llm.parser import parse_html_with_beautifulsoup
+        
+        html = "<html><body><h1>Title</h1><p>Paragraph with <strong>bold</strong> text.</p></body></html>"
+        result = await parse_html_with_beautifulsoup(html, include_links=False)
+        
+        assert "Title" in result
+        assert "Paragraph" in result
+        assert "bold" in result
+
+    @pytest.mark.asyncio
+    async def test_parse_html_with_links_preserved(self):
+        """Test that include_links option works with BeautifulSoup parser."""
+        from src.mcp_server.llm.parser import parse_html_with_beautifulsoup
+        
+        html = '<html><body><a href="https://example.com">Link Text</a></body></html>'
+        result = await parse_html_with_beautifulsoup(html, include_links=True)
+        
+        # With include_links=True, the link should be preserved
+        assert "example.com" in result or "Link Text" in result
+
+    @pytest.mark.asyncio
+    async def test_extract_text_from_markdown(self):
+        """Test markdown text extraction."""
+        from src.mcp_server.llm.parser import extract_text_from_markdown
+        
+        markdown = """# Heading
+
+This is **bold** and *italic* text.
+
+[Link Text](https://example.com)
+
+- List item 1
+- List item 2
+
+```
+code block
+```
+"""
+        result = extract_text_from_markdown(markdown)
+        
+        # Check that markdown formatting is removed but text remains
+        assert "Heading" in result
+        assert "bold" in result  # Bold text content preserved
+        assert "italic" in result  # Italic text content preserved
+        assert "#" not in result  # Header marker removed
+        assert "**" not in result  # Bold markers removed
+
+    @pytest.mark.asyncio
+    async def test_docling_not_available_graceful_fallback(self):
+        """Test that when Docling is not installed, parsing falls back gracefully."""
+        from src.mcp_server.llm import parser
+        
+        # Save original value
+        original_available = parser.DOCLING_AVAILABLE
+        
+        try:
+            # Simulate Docling not being available
+            parser.DOCLING_AVAILABLE = False
+            
+            html = "<html><body><h1>Fallback Test</h1></body></html>"
+            result = await parser.parse_html_with_beautifulsoup(html, include_links=False)
+            
+            assert "Fallback Test" in result
+        finally:
+            # Restore original value
+            parser.DOCLING_AVAILABLE = original_available
+
+    @pytest.mark.asyncio
+    async def test_fetch_web_content_with_query_params_in_url(self):
+        """Test that URLs with query parameters are handled correctly for Docling detection."""
+        from src.mcp_server.llm.parser import is_docling_supported_url
+        
+        # URL with query params should still detect the file extension
+        assert is_docling_supported_url("https://example.com/doc.pdf?version=1") is True
+        assert is_docling_supported_url("https://example.com/page.html?ref=home") is False

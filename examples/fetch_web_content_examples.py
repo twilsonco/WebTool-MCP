@@ -7,6 +7,11 @@ The atomic API fetches one URL per call:
     result = await real_fetch_web_content("https://example.com", num_words=500)
 
 Returns a dict with 'url' and 'content', or 'error' on failure.
+
+Docling Integration:
+- fetchWebContent automatically uses Docling for supported document formats
+- Supported formats: PDF, DOCX, PPTX, XLSX, PNG, JPG, TIFF, BMP, MD, CSV, JSON, XML, HTML
+- Falls back to BeautifulSoup for regular web pages
 """
 import os
 import sys
@@ -110,6 +115,87 @@ async def example_start_offset():
         print(f"\nWords 51-70: {second_100['content']}")
 
 
+async def example_docling_formats():
+    """Example 5: Docling-supported document formats.
+    
+    This example demonstrates fetching documents in formats supported by Docling:
+    - PDF, DOCX, PPTX, XLSX
+    - Images (PNG, JPG, TIFF)
+    - Markdown, CSV, JSON, XML
+    
+    Note: These URLs are placeholders. Replace with actual document URLs to test.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 5: Docling Document Formats")
+    print("=" * 60)
+
+    # Example document URLs (replace with actual documents to test)
+    docling_urls = [
+        "https://example.com/document.pdf",
+        "https://example.com/presentation.pptx",
+        "https://example.com/spreadsheet.xlsx",
+        "https://example.com/document.docx",
+    ]
+
+    print("\nDocling automatically parses these formats when detected by URL extension.")
+    print("Supported extensions: .pdf, .docx, .pptx, .xlsx, .png, .jpg, .md, .csv, .json, .xml")
+    print("\nExample URLs that would use Docling:")
+    for url in docling_urls:
+        print(f"  - {url}")
+
+
+async def example_docling_pdf_fetch():
+    """Example 6: Fetch and parse a real PDF using Docling.
+    
+    This example demonstrates fetching an actual PDF document from the web
+    and parsing it using Docling's advanced document understanding.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 6: Docling PDF Fetch (Real Document)")
+    print("=" * 60)
+
+    # Real sample PDF from file-examples.com
+    pdf_url = "https://file-examples.com/wp-content/storage/2017/10/file-sample_150kB.pdf"
+    
+    print(f"\nFetching PDF: {pdf_url}")
+    print("Using Docling for advanced PDF parsing...")
+    
+    result = await real_fetch_web_content(pdf_url, num_words=200)
+    
+    if "error" in result:
+        print(f"\n  Error: {result['error']}")
+    else:
+        print(f"\n[{result['url']}]")
+        print("-" * 40)
+        content = result.get("content", "")
+        if content:
+            print(f"Content preview (first 500 chars):")
+            print(content[:500] + ("..." if len(content) > 500 else ""))
+        else:
+            print("No content extracted")
+
+
+async def example_docling_fallback():
+    """Example 6: Docling fallback to BeautifulSoup.
+    
+    When Docling is not available or fails, the system falls back
+    to BeautifulSoup for HTML parsing.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 6: Docling Fallback Behavior")
+    print("=" * 60)
+
+    # Regular HTML pages always use BeautifulSoup
+    result = await real_fetch_web_content("https://example.com")
+    
+    print("\nRegular HTML pages use BeautifulSoup for parsing:")
+    if "content" in result:
+        print(f"  URL: {result['url']}")
+        print(f"  Content preview: {result['content'][:100]}...")
+    else:
+        print_result(result)
+
+
 async def main():
     print("\n" + "#" * 60)
     print("# fetchWebContent Examples (using real implementation)")
@@ -119,6 +205,9 @@ async def main():
     await example_with_truncation()
     await example_with_regex()
     await example_start_offset()
+    await example_docling_formats()
+    await example_docling_pdf_fetch()  # Real PDF fetch with Docling
+    await example_docling_fallback()
 
     print("\n" + "#" * 60)
     print("# Done!")

@@ -16,6 +16,21 @@ from markdownify import markdownify as md
 
 from mcp_server.auth import StaticTokenVerifier, load_api_keys_from_env
 from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
+try:
+    from mcp_server.llm.parser import (
+        is_docling_supported_url,
+        parse_with_docling,
+        parse_html_with_beautifulsoup,
+        extract_text_from_markdown,
+    )
+except ImportError:
+    # Fallback for when running directly without package install
+    from mcp_server.llm.parser import (
+        is_docling_supported_url,
+        parse_with_docling,
+        parse_html_with_beautifulsoup,
+        extract_text_from_markdown,
+    )
 
 load_dotenv()
 
@@ -430,6 +445,9 @@ async def fetch_web_content(
     """
     Fetch a URL, convert to markdown, and optionally filter via regex.
 
+    Supports multiple document formats through Docling (PDF, DOCX, PPTX, XLSX,
+    images, etc.) and falls back to BeautifulSoup for regular HTML pages.
+
     Args:
         url: The URL to fetch (required)
         include_links: When True, preserve anchor tag hrefs; when False (default), unwrap anchors keeping only text
@@ -445,15 +463,26 @@ async def fetch_web_content(
         try:
             resp = await client.get(url, timeout=10.0)
             resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, 'html.parser')
-
-            # Handle include_links option - strip href attributes when False
-            if not include_links:
-                for a_tag in soup.find_all('a'):
-                    a_tag.unwrap()  # Remove anchor tags but keep text content
-
-            # Basic conversion
-            content = md(str(soup))
+            
+            # Check if URL points to a Docling-supported document format
+            use_docling = is_docling_supported_url(url)
+            
+            if use_docling:
+                # Parse document using Docling
+                content_bytes = resp.content
+                
+                # Try to parse with Docling first
+                file_ext = "." + url.split(".")[-1].lower().split("?")[0]
+                docling_result = await parse_with_docling(content_bytes, file_ext)
+                
+                if docling_result:
+                    content = extract_text_from_markdown(docling_result)
+                else:
+                    # Docling failed, try BeautifulSoup as fallback for text-based formats
+                    content = await parse_html_with_beautifulsoup(resp.text, include_links)
+            else:
+                # Regular HTML page - use BeautifulSoup
+                content = await parse_html_with_beautifulsoup(resp.text, include_links)
 
             # Apply Regex filtering/padding if provided
             if regex:
@@ -462,9 +491,9 @@ async def fetch_web_content(
                 if matches:
                     filtered = []
                     for m in matches:
-                        start = max(0, m.start() - regex_padding)
-                        end = min(len(content), m.end() + regex_padding)
-                        filtered.append(content[start:end])
+                        start_idx = max(0, m.start() - regex_padding)
+                        end_idx = min(len(content), m.end() + regex_padding)
+                        filtered.append(content[start_idx:end_idx])
                     content = "\n---\n".join(filtered)
                 else:
                     content = "No matches found for regex."
