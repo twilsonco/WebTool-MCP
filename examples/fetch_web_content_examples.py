@@ -154,8 +154,8 @@ async def example_docling_pdf_fetch():
     print("EXAMPLE 6: Docling PDF Fetch (Real Document)")
     print("=" * 60)
 
-    # Real sample PDF from file-examples.com
-    pdf_url = "https://file-examples.com/wp-content/storage/2017/10/file-sample_150kB.pdf"
+    # Real sample PDF from GitHub (replace with any accessible PDF URL to test)
+    pdf_url = "https://raw.githubusercontent.com/twilsonco/WebTool-MCP/main/examples/file-sample_150kB.pdf"
     
     print(f"\nFetching PDF: {pdf_url}")
     print("Using Docling for advanced PDF parsing...")
