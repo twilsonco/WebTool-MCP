@@ -29,6 +29,9 @@ load_dotenv(project_root / ".env")
 # Import the actual implementation functions from server.py
 from src.mcp_server.server import fetch_web_content as real_fetch_web_content
 
+# Import supported extensions for Docling from parser.py
+from src.mcp_server.llm.parser import DOCLING_SUPPORTED_EXTENSIONS
+
 
 def print_result(result: dict):
     """Display a fetch result."""
@@ -47,7 +50,7 @@ async def example_basic():
     print("EXAMPLE 1: Basic Fetch")
     print("=" * 60)
 
-    result = await real_fetch_web_content("https://example.com")
+    result = await real_fetch_web_content("https://example.com", include_links=True)
     print_result(result)
 
 
@@ -138,7 +141,7 @@ async def example_docling_formats():
     ]
 
     print("\nDocling automatically parses these formats when detected by URL extension.")
-    print("Supported extensions: .pdf, .docx, .pptx, .xlsx, .png, .jpg, .md, .csv, .json, .xml")
+    print(f"Supported extensions: {', '.join(sorted(DOCLING_SUPPORTED_EXTENSIONS))}")
     print("\nExample URLs that would use Docling:")
     for url in docling_urls:
         print(f"  - {url}")
@@ -160,7 +163,7 @@ async def example_docling_pdf_fetch():
     print(f"\nFetching PDF: {pdf_url}")
     print("Using Docling for advanced PDF parsing...")
     
-    result = await real_fetch_web_content(pdf_url, num_words=200)
+    result = await real_fetch_web_content(pdf_url, num_words=20000, include_links=True)
     
     if "error" in result:
         print(f"\n  Error: {result['error']}")

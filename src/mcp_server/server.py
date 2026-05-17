@@ -473,10 +473,14 @@ async def fetch_web_content(
                 
                 # Try to parse with Docling first
                 file_ext = "." + url.split(".")[-1].lower().split("?")[0]
-                docling_result = await parse_with_docling(content_bytes, file_ext)
+                docling_result = await parse_with_docling(content_bytes, file_ext, include_links)
                 
                 if docling_result:
-                    content = extract_text_from_markdown(docling_result)
+                    # Only extract plain text when include_links is False
+                    if include_links:
+                        content = docling_result  # Already markdown with links preserved
+                    else:
+                        content = extract_text_from_markdown(docling_result)
                 else:
                     # Docling failed, try BeautifulSoup as fallback for text-based formats
                     content = await parse_html_with_beautifulsoup(resp.text, include_links)

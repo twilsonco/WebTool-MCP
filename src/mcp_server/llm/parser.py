@@ -25,6 +25,7 @@ except ImportError:
 
 # Supported file extensions for Docling parsing
 DOCLING_SUPPORTED_EXTENSIONS: Set[str] = {
+    ".html",
     # Documents
     ".pdf",
     ".docx",
@@ -58,10 +59,7 @@ def is_docling_supported_url(url: str) -> bool:
     # Remove query parameters and fragment from URL before checking extension
     url_clean = url.lower().split("?")[0].split("#")[0]
     
-    for ext in DOCLING_SUPPORTED_EXTENSIONS:
-        if url_clean.endswith(ext):
-            return True
-    return False
+    return any(url_clean.endswith(ext) for ext in DOCLING_SUPPORTED_EXTENSIONS)
 
 
 def is_html_content(content_type: Optional[str]) -> bool:
@@ -82,6 +80,7 @@ def is_html_content(content_type: Optional[str]) -> bool:
 async def parse_with_docling(
     content: bytes,
     file_extension: str,
+    include_links: bool = False,
 ) -> Optional[str]:
     """
     Parse document content using Docling.
@@ -89,6 +88,7 @@ async def parse_with_docling(
     Args:
         content: Raw binary content of the document
         file_extension: File extension (e.g., ".pdf", ".docx")
+        include_links: Whether to preserve hyperlinks in the output
         
     Returns:
         Parsed text content as markdown, or None if parsing fails
@@ -113,7 +113,59 @@ async def parse_with_docling(
         )
         
         if result and hasattr(result, 'document') and result.document:
-            return result.document.export_to_markdown()
+            if include_links:
+                # Export to HTML which preserves more structure including links
+                html_content = result.document.export_to_html()
+                # Convert HTML back to markdown with links preserved using markdownify
+                from markdownify import markdownify as md
+                return md(html_content)
+            else:
+                return result.document.export_to_markdown()
+        
+        return None
+    except Exception:
+        # Docling parsing failed, will fall back to other methods
+        return None
+
+
+async def parse_with_docling_html(
+    content: bytes,
+    file_extension: str,
+) -> Optional[str]:
+    """
+    Parse document content using Docling and return HTML output.
+    
+    This is useful when you need the raw HTML for further processing,
+    as Docling's HTML export preserves more structure than markdown.
+    
+    Args:
+        content: Raw binary content of the document
+        file_extension: File extension (e.g., ".pdf", ".docx")
+        
+    Returns:
+        Parsed content as HTML string, or None if parsing fails
+    """
+    if not DOCLING_AVAILABLE:
+        return None
+    
+    try:
+        # Initialize the document converter (use default settings)
+        converter = DocumentConverter()
+        
+        # Create a DocumentStream from the binary content
+        doc_stream = DocumentStream(
+            name=f"document{file_extension}",
+            stream=io.BytesIO(content),
+        )
+        
+        # Convert the document - returns a single ConversionResult
+        result = converter.convert(
+            source=doc_stream,
+            raises_on_error=False,
+        )
+        
+        if result and hasattr(result, 'document') and result.document:
+            return result.document.export_to_html()
         
         return None
     except Exception:
