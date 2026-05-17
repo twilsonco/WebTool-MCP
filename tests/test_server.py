@@ -1721,13 +1721,15 @@ class TestDoclingIntegration:
         assert is_docling_supported_url("https://example.com/scan.tiff") is True
 
     @pytest.mark.asyncio
-    async def test_fetch_html_url_does_not_use_docling(self):
-        """Test that regular HTML URLs don't trigger Docling."""
+    async def test_fetch_html_url_uses_docling(self):
+        """Test that HTML URLs (with or without .html extension) trigger Docling."""
         from src.mcp_server.llm.parser import is_docling_supported_url
         
-        # HTML pages should not use Docling (they use BeautifulSoup)
-        # assert is_docling_supported_url("https://example.com/page.html") is False
-        assert is_docling_supported_url("https://example.com/") is False
+        # HTML pages should use Docling (since Docling supports HTML parsing)
+        assert is_docling_supported_url("https://example.com/page.html") is True
+        # URLs without extensions are treated as HTML and use Docling
+        assert is_docling_supported_url("https://example.com/") is True
+        assert is_docling_supported_url("https://example.com/page") is True
 
     @pytest.mark.asyncio
     async def test_fetch_with_docling_fallback_to_beautifulsoup(self):

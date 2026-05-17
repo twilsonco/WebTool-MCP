@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from mcp_server.auth import StaticTokenVerifier, load_api_keys_from_env
 from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
 from mcp_server.llm.parser import (
+    DOCLING_SUPPORTED_EXTENSIONS,
     is_docling_supported_url,
     parse_with_docling,
     parse_html_with_beautifulsoup
@@ -459,15 +460,29 @@ async def fetch_web_content(
                 # Parse document using Docling
                 content_bytes = resp.content
                 
-                # Try to parse with Docling first
+                # Extract file extension from URL
                 file_ext = "." + url.split(".")[-1].lower().split("?")[0]
-                docling_result = await parse_with_docling(content_bytes, file_ext, include_links)
                 
-                if docling_result:
-                    content = docling_result
+                # Only attempt Docling if the extension is actually supported
+                # (handles case of URLs without extensions that were treated as HTML)
+                if file_ext in DOCLING_SUPPORTED_EXTENSIONS:
+                    docling_result = await parse_with_docling(content_bytes, file_ext, include_links)
+                    
+                    if docling_result:
+                        content = docling_result
+                    else:
+                        # Docling failed, try BeautifulSoup as fallback for text-based formats
+                        content = await parse_html_with_beautifulsoup(resp.text, include_links)
                 else:
-                    # Docling failed, try BeautifulSoup as fallback for text-based formats
-                    content = await parse_html_with_beautifulsoup(resp.text, include_links)
+                    # No supported extension (e.g., .com, .net) but is_docling_supported_url
+                    # returned True - this means it's likely HTML content, so try Docling first
+                    docling_result = await parse_with_docling(content_bytes, ".html", include_links)
+                    
+                    if docling_result:
+                        content = docling_result
+                    else:
+                        # Docling failed, try BeautifulSoup as fallback
+                        content = await parse_html_with_beautifulsoup(resp.text, include_links)
             else:
                 # Regular HTML page - use BeautifulSoup
                 content = await parse_html_with_beautifulsoup(resp.text, include_links)

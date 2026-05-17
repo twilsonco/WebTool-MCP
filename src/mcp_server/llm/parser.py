@@ -12,6 +12,7 @@ This module provides async document parsing with fallback to BeautifulSoup for H
 
 import io
 from typing import Optional, Set
+from urllib.parse import urlparse
 
 # Docling imports for document parsing
 try:
@@ -49,15 +50,32 @@ def is_docling_supported_url(url: str) -> bool:
     """
     Check if a URL points to a file format supported by Docling.
     
+    URLs without extensions are treated as HTML (since most web pages are HTML
+    and Docling supports HTML parsing).
+    
     Args:
         url: The URL to check
         
     Returns:
-        True if the URL has a Docling-supported file extension
+        True if the URL has a Docling-supported file extension or no extension
     """
-    # Remove query parameters and fragment from URL before checking extension
-    url_clean = url.lower().split("?")[0].split("#")[0]
     
+    # Parse URL and get just the path portion
+    parsed = urlparse(url.lower())
+    path = parsed.path
+    
+    # Remove query parameters and fragment from URL before checking extension
+    url_clean = path.split("?")[0].split("#")[0]
+    
+    # Check if URL has any extension (by checking the last path segment)
+    # An extension is a "." in the final path component after the last "/"
+    filename = url_clean.split("/")[-1]
+    
+    if not filename or "." not in filename:
+        # No extension found - treat as HTML since most web pages are HTML
+        return True
+    
+    # Check if URL ends with a supported extension
     return any(url_clean.endswith(ext) for ext in DOCLING_SUPPORTED_EXTENSIONS)
 
 
