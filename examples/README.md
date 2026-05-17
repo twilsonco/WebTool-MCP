@@ -81,7 +81,7 @@ uv run python examples/search_web_examples.py --dry-run    # print specs, no API
 
 Direct-call examples importing the actual `summarizeWebContent` implementation. Each call summarizes a single URL. Requires LLM provider configuration.
 
-1. **Single URL** - Summarize one URL with `max_words_per_url=500`
+1. **Single URL** - Summarize one URL with `max_num_words=500`
 2. **Custom Summary Prompt** - Custom prompt guiding what the LLM extracts
 3. **LLM Config Check** - Initializes `LLMManager` and prints provider info (name, base_url, model)
 4. **Multi-Provider Failover** - Demonstrates multi-provider LLM failover (commented out in `main()` by default)

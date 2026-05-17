@@ -1016,7 +1016,7 @@ class TestWebSummarize:
 
         with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
             with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Summary")):
-                result = await summarize_web_content("https://example.com", max_words_per_url=100)
+                result = await summarize_web_content("https://example.com", max_num_words=100)
 
                 assert "url" in result
 

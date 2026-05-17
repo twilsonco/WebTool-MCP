@@ -281,7 +281,7 @@ Fetch a URL and generate an LLM-powered summary.
 |-----------|------|---------|-------------|
 | `url` | str | Required | URL to summarize |
 | `summary_prompt` | str | (built-in) | Custom prompt for summarization |
-| `max_words_per_url` | int | `800` | Max words before truncation |
+| `max_num_words` | int | `800` | Max words before truncation |
 
 **Returns:**
 ```python
@@ -303,7 +303,7 @@ Or on error:
 result = await summarizeWebContent(
     url="https://docs.python.org/3/library/asyncio.html",
     summary_prompt="Focus on async/await patterns and best practices.",
-    max_words_per_url=1000
+    max_num_words=1000
 )
 ```
 
@@ -324,7 +324,7 @@ curl -X POST http://localhost:8000/mcp \
       "arguments": {
         "url": "https://docs.python.org/3/library/asyncio.html",
         "summary_prompt": "Focus on async/await patterns and best practices.",
-        "max_words_per_url": 1000
+        "max_num_words": 1000
       }
     }
   }'

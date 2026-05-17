@@ -6,7 +6,7 @@ Loads API keys from .env in project root.
 Requires LLM_PROVIDER_1_* variables to be configured (multi-provider support).
 
 The atomic API summarizes one URL per call:
-    result = await real_summarize_web_content("https://example.com", max_words_per_url=500)
+    result = await real_summarize_web_content("https://example.com", max_num_words=500)
 
 Returns a dict with 'url' and 'summary', or 'error' on failure.
 """
@@ -35,7 +35,7 @@ async def example_single_url():
     url = "https://blog.comma.ai/011release/"
 
     print(f"\nSummarizing {url}...")
-    result = await real_summarize_web_content(url, max_words_per_url=500)
+    result = await real_summarize_web_content(url, max_num_words=500)
 
     if "summary" in result:
         print(f"\nURL: {result['url']}")
@@ -66,7 +66,7 @@ Format as: ## Overview\n## Technical Details\n## Examples
     result = await real_summarize_web_content(
         url,
         summary_prompt=custom_prompt,
-        max_words_per_url=400
+        max_num_words=400
     )
 
     if "summary" in result:

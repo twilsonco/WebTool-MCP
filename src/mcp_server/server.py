@@ -394,7 +394,7 @@ Format output as clean Markdown with headers where appropriate.
 async def summarize_web_content(
     url: str,
     summary_prompt: str = "",
-    max_words_per_url: int = 800
+    max_num_words: int = 800
 ) -> dict:
     """
     Fetch a URL and summarize content via configured LLM.
@@ -402,7 +402,7 @@ async def summarize_web_content(
     Args:
         url: The URL to fetch and summarize (required)
         summary_prompt: Custom prompt for the summarization step (optional, uses built-in default)
-        max_words_per_url: Max words before truncation (default 800)
+        max_num_words: Max words before truncation (default 800)
 
     Returns:
         Dict with 'url' and 'summary', or 'error' on fetch/LLM failure.
@@ -410,7 +410,7 @@ async def summarize_web_content(
     # Fetch content from the URL
     fetch_result = await fetch_web_content(
         url,
-        num_words=max_words_per_url,
+        num_words=max_num_words,
         regex=None  # No filtering; full content for summarization
     )
 
@@ -569,12 +569,12 @@ async def api_fetch_web_content(
 async def api_summarize_web_content(
     url: str,
     summary_prompt: str = "",
-    max_words_per_url: int = 800,
+    max_num_words: int = 800,
 ) -> dict:
     return await summarize_web_content(
         url=url,
         summary_prompt=summary_prompt,
-        max_words_per_url=max_words_per_url,
+        max_num_words=max_num_words,
     )
 
 

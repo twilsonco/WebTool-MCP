@@ -101,7 +101,7 @@ async def test_summarize_web_content(session: ClientSession):
         "summarizeWebContent",
         {
             "url": "https://example.com",
-            "max_words_per_url": 300
+            "max_num_words": 300
         },
     )
     print(json.dumps(response, indent=2))
