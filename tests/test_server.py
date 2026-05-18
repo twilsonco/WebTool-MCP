@@ -2005,6 +2005,93 @@ class TestBinaryFetchPath:
         assert "content" in result
         assert result["content"] == "HTML fallback content"
 
+    @pytest.mark.asyncio
+    async def test_403_response_falls_back_to_playwright(self):
+        """403 Forbidden triggers a Playwright fallback instead of returning an error."""
+        import httpx as _httpx
+        from src.mcp_server.extraction.pipeline import ExtractionResult
+
+        playwright_result = ExtractionResult(
+            content="SO page via playwright", method="playwright+trafilatura"
+        )
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            resp = MagicMock()
+            error_resp = MagicMock()
+            error_resp.status_code = 403
+            resp.raise_for_status = MagicMock(
+                side_effect=_httpx.HTTPStatusError(
+                    "403 Forbidden", request=MagicMock(), response=error_resp
+                )
+            )
+            instance.get.return_value = resp
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with patch(
+                "src.mcp_server.server._extraction_pipeline.extract_from_html",
+                new=AsyncMock(return_value=playwright_result),
+            ):
+                result = await fetch_web_content("https://stackoverflow.com/questions/123")
+
+        assert "content" in result
+        assert result["content"] == "SO page via playwright"
+
+    @pytest.mark.asyncio
+    async def test_429_response_falls_back_to_playwright(self):
+        """429 Too Many Requests also triggers Playwright fallback."""
+        import httpx as _httpx
+        from src.mcp_server.extraction.pipeline import ExtractionResult
+
+        playwright_result = ExtractionResult(
+            content="rate-limited page via playwright", method="playwright+trafilatura"
+        )
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            resp = MagicMock()
+            error_resp = MagicMock()
+            error_resp.status_code = 429
+            resp.raise_for_status = MagicMock(
+                side_effect=_httpx.HTTPStatusError(
+                    "429 Too Many Requests", request=MagicMock(), response=error_resp
+                )
+            )
+            instance.get.return_value = resp
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with patch(
+                "src.mcp_server.server._extraction_pipeline.extract_from_html",
+                new=AsyncMock(return_value=playwright_result),
+            ):
+                result = await fetch_web_content("https://example.com/page")
+
+        assert "content" in result
+        assert result["content"] == "rate-limited page via playwright"
+
+    @pytest.mark.asyncio
+    async def test_404_response_returns_error_not_playwright(self):
+        """404 Not Found is not a bot-protection code and returns an error directly."""
+        import httpx as _httpx
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            resp = MagicMock()
+            error_resp = MagicMock()
+            error_resp.status_code = 404
+            resp.raise_for_status = MagicMock(
+                side_effect=_httpx.HTTPStatusError(
+                    "404 Not Found", request=MagicMock(), response=error_resp
+                )
+            )
+            instance.get.return_value = resp
+            mock_client.return_value.__aenter__.return_value = instance
+
+            result = await fetch_web_content("https://example.com/missing")
+
+        assert "error" in result
+        assert "404" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # _require_auth function

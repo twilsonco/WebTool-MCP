@@ -226,6 +226,7 @@ async def example_full_content_fetch():
     urls_to_fetch = [
         "https://github.com/docling-project/docling/discussions/1953",
         "https://file-examples.com/wp-content/storage/2017/10/file-sample_150kB.pdf",
+        "https://stackoverflow.com/questions/9919509/need-help-to-generate-report-in-pdf-or-doc-using-python",
     ]
 
     for url in urls_to_fetch:
