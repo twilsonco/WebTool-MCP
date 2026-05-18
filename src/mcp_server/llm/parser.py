@@ -130,14 +130,21 @@ async def parse_with_docling(
         )
         
         if result and hasattr(result, 'document') and result.document:
+            # Always export to HTML first for consistent link handling
+            html_content = result.document.export_to_html()
+            
             if include_links:
-                # Export to HTML which preserves more structure including links
-                html_content = result.document.export_to_html()
-                # Convert HTML back to markdown with links preserved using markdownify
+                # Convert HTML to markdown with links preserved
                 from markdownify import markdownify as md
                 return md(html_content)
             else:
-                return result.document.export_to_markdown()
+                # Strip link tags from HTML before converting to markdown
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html_content, 'html.parser')
+                for a_tag in soup.find_all('a'):
+                    a_tag.unwrap()  # Remove anchor tags but keep text content
+                from markdownify import markdownify as md
+                return md(str(soup))
         
         return None
     except Exception:
