@@ -38,23 +38,22 @@ End-to-end MCP client test that connects via the streamable-http transport and c
 
 ### fetch_web_content_examples.py
 
-Direct-call examples importing the actual `fetchWebContent` implementation from server.py. Each call fetches a single URL. No API keys needed.
+Direct-call examples importing the actual `fetchWebContent` implementation from server.py. Each call fetches a single URL. No API keys needed (except example 7, which requires an LLM provider).
 
-1. **Basic Fetch** - Fetch a URL and display raw Markdown
+1. **Basic Fetch** - Fetch a URL and display raw Markdown; repeated with `include_links=False`
 2. **Word Truncation** - `num_words=50` truncates output to 50 words
 3. **Regex Filtering** - `regex="the|is"` with `regex_padding=30` for context around matches
 4. **Word Offset** - `start_word=0` vs `start_word=50` for pagination by word position
-5. **Docling Document Formats** - Demonstrates multi-format document parsing (PDF, DOCX, PPTX, XLSX, images)
-6. **Docling Fallback Behavior** - Shows how the system falls back to BeautifulSoup when Docling is unavailable
+5. **Binary Document Formats** - Lists extensions routed directly to Docling (PDF, DOCX, PPTX, XLSX, images, CSV, JSON, XML)
+6. **PDF Fetch** - Fetches a real PDF via the binary-document path (Docling)
+7. **LLM Refinement** - `use_llm_refinement=True` applies an optional LLM semantic cleanup pass (requires `LLM_PROVIDER_1_*` in `.env`)
 
 ```bash
 uv run python examples/fetch_web_content_examples.py
 ```
 
-**Docling Integration:**
-- `fetchWebContent` automatically detects and parses supported document formats using Docling
-- Supported formats: PDF, DOCX, PPTX, XLSX, PNG, JPG, TIFF, BMP, MD, CSV, JSON, XML, HTML
-- Falls back to BeautifulSoup for regular web pages when Docling is not applicable or fails
+**Extraction Pipeline:**
+`fetchWebContent` uses a multi-tiered pipeline to maximise content quality: Playwright (JS rendering) → Trafilatura → Readability-lxml → Docling (binary documents) → BeautifulSoup (fallback). An optional LLM refinement pass is available via `use_llm_refinement=True`.
 
 ### search_web_examples.py
 

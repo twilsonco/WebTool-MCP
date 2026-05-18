@@ -8,10 +8,13 @@ The atomic API fetches one URL per call:
 
 Returns a dict with 'url' and 'content', or 'error' on failure.
 
-Docling Integration:
-- fetchWebContent automatically uses Docling for supported document formats
-- Supported formats: PDF, DOCX, PPTX, XLSX, PNG, JPG, TIFF, BMP, MD, CSV, JSON, XML, HTML
-- Falls back to BeautifulSoup for regular web pages
+Extraction Pipeline (applied in order, best result wins):
+1. Playwright  - dynamic rendering for JS-heavy / SPA pages
+2. Trafilatura - heuristic text-density extraction (fast, no JS)
+3. Readability - Mozilla-style article extraction
+4. Docling     - layout-aware parsing for PDFs, DOCX, images, etc.
+5. BeautifulSoup - universal HTML fallback (always succeeds)
+6. LLM refinement - optional semantic cleanup pass (use_llm_refinement=True)
 """
 import os
 import sys
@@ -27,10 +30,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 # Import the actual implementation functions from server.py
-from src.mcp_server.server import fetch_web_content as real_fetch_web_content
-
-# Import supported extensions for Docling from parser.py
-from src.mcp_server.llm.parser import DOCLING_SUPPORTED_EXTENSIONS
+from src.mcp_server.server import fetch_web_content as real_fetch_web_content, _BINARY_DOC_EXTENSIONS
 
 
 def print_result(result: dict):
@@ -124,53 +124,52 @@ async def example_start_offset():
         print(f"\nWords 51-70: {second_100['content']}")
 
 
-async def example_docling_formats():
-    """Example 5: Docling-supported document formats.
-    
-    This example demonstrates fetching documents in formats supported by Docling:
-    - PDF, DOCX, PPTX, XLSX
-    - Images (PNG, JPG, TIFF)
-    - Markdown, CSV, JSON, XML
-    
-    Note: These URLs are placeholders. Replace with actual document URLs to test.
+async def example_binary_document_formats():
+    """Example 5: Binary document formats routed directly to Docling.
+
+    URLs whose extension matches a binary document type bypass the HTML
+    pipeline and go straight to Docling for layout-aware parsing.
+    Supported formats: PDF, DOCX, PPTX, XLSX, images (PNG, JPG, TIFF, BMP),
+    and structured data files (CSV, JSON, XML).
+
+    Note: The URLs below are placeholders. Replace with real document URLs to
+    exercise the pipeline.
     """
     print("\n" + "=" * 60)
-    print("EXAMPLE 5: Docling Document Formats")
+    print("EXAMPLE 5: Binary Document Formats (Docling via pipeline)")
     print("=" * 60)
 
     # Example document URLs (replace with actual documents to test)
-    docling_urls = [
+    binary_urls = [
         "https://example.com/document.pdf",
         "https://example.com/presentation.pptx",
         "https://example.com/spreadsheet.xlsx",
         "https://example.com/document.docx",
     ]
 
-    print("\nDocling automatically parses these formats when detected by URL extension.")
-    print(f"Supported extensions: {', '.join(sorted(DOCLING_SUPPORTED_EXTENSIONS))}")
-    print("\nExample URLs that would use Docling:")
-    for url in docling_urls:
+    print("\nBinary document extensions routed to Docling:")
+    print(f"  {', '.join(sorted(_BINARY_DOC_EXTENSIONS))}")
+    print("\nExample URLs that would use the Docling (binary) path:")
+    for url in binary_urls:
         print(f"  - {url}")
 
 
-async def example_docling_pdf_fetch():
-    """Example 6: Fetch and parse a real PDF using Docling.
-    
-    This example demonstrates fetching an actual PDF document from the web
-    and parsing it using Docling's advanced document understanding.
+async def example_pdf_fetch():
+    """Example 6: Fetch and parse a real PDF via Docling.
+
+    Fetches an actual PDF document; the binary-document path routes it
+    directly to Docling for layout-aware parsing.
     """
     print("\n" + "=" * 60)
-    print("EXAMPLE 6: Docling PDF Fetch (Real Document)")
+    print("EXAMPLE 6: PDF Fetch (Docling binary path)")
     print("=" * 60)
 
     # Real sample PDF from GitHub (replace with any accessible PDF URL to test)
     pdf_url = "https://raw.githubusercontent.com/twilsonco/WebTool-MCP/main/examples/file-sample_150kB.pdf"
-    
+
     print(f"\nFetching PDF: {pdf_url}")
-    print("Using Docling for advanced PDF parsing...")
-    
     result = await real_fetch_web_content(pdf_url, num_words=20000, include_links=True)
-    
+
     if "error" in result:
         print(f"\n  Error: {result['error']}")
     else:
@@ -178,29 +177,32 @@ async def example_docling_pdf_fetch():
         print("-" * 40)
         content = result.get("content", "")
         if content:
-            print(f"Full PDF content:")
             print(content)
         else:
             print("No content extracted")
 
 
-async def example_docling_fallback():
-    """Example 6: Docling fallback to BeautifulSoup.
-    
-    When Docling is not available or fails, the system falls back
-    to BeautifulSoup for HTML parsing.
+async def example_llm_refinement():
+    """Example 7: Optional LLM refinement pass.
+
+    When use_llm_refinement=True, an LLM does a final semantic cleanup of the
+    extracted Markdown.  Requires at least one LLM_PROVIDER_*_BASE_URL to be
+    configured in .env; silently skipped otherwise.
     """
     print("\n" + "=" * 60)
-    print("EXAMPLE 6: Docling Fallback Behavior")
+    print("EXAMPLE 7: LLM Refinement (use_llm_refinement=True)")
     print("=" * 60)
 
-    # Regular HTML pages always use BeautifulSoup
-    result = await real_fetch_web_content("https://example.com")
-    
-    print("\nRegular HTML pages use BeautifulSoup for parsing:")
+    result = await real_fetch_web_content(
+        "https://example.com",
+        use_llm_refinement=True,
+    )
+
+    print("\nFetched with LLM refinement enabled:")
     if "content" in result:
         print(f"  URL: {result['url']}")
-        print(f"  Content preview: {result['content'][:100]}...")
+        print(f"  Extraction method: {result.get('extraction_method', 'unknown')}")
+        print(f"  Content preview: {result['content'][:200]}...")
     else:
         print_result(result)
 
@@ -214,9 +216,9 @@ async def main():
     await example_with_truncation()
     await example_with_regex()
     await example_start_offset()
-    await example_docling_formats()
-    await example_docling_pdf_fetch()  # Real PDF fetch with Docling
-    await example_docling_fallback()
+    await example_binary_document_formats()
+    await example_pdf_fetch()
+    await example_llm_refinement()
 
     print("\n" + "#" * 60)
     print("# Done!")

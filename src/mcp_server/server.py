@@ -43,8 +43,8 @@ app = FastAPI(
 )
 
 # DNS rebinding protection for non-localhost hosts
-if server_host not in ("127.0.0.1", "localhost", "::1"):
-    app.add_middleware(
+if server_host not in ("127.0.0.1", "localhost", "::1"):  # pragma: no cover
+    app.add_middleware(  # pragma: no cover
         TrustedHostMiddleware,
         allowed_hosts=[server_host],
     )
@@ -65,7 +65,7 @@ async def _require_auth(
         raise HTTPException(status_code=401, detail="Invalid or missing Bearer token")
 
 if api_keys:
-    print(f"Server initialized with Bearer token auth ({len(api_keys)} key(s))")
+    print(f"Server initialized with Bearer token auth ({len(api_keys)} key(s))")  # pragma: no cover
 else:
     print("Server initialized (no API keys — auth disabled)")
 
@@ -648,5 +648,5 @@ def main() -> None:  # pragma: no cover
         asyncio.run(async_main())
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":  # pragma: no cover
+    main()  # pragma: no cover

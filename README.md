@@ -8,21 +8,27 @@ WebTool is an MCP server designed to extend AI assistants with practical web fun
 
 The server is built with:
 - **MCP SDK** for the protocol implementation
-- **httpx** for async HTTP requests (no browser automation)
+- **httpx** for async HTTP requests
+- **[Playwright](https://playwright.dev/python/)** for dynamic rendering of JavaScript-heavy pages
+- **[Trafilatura](https://trafilatura.readthedocs.io/)** and **[Readability-lxml](https://github.com/buriy/python-readability)** for heuristic text-density extraction
 - **BeautifulSoup** and **markdownify** for HTML-to-Markdown conversion
-- **[Docling](https://github.com/docling-project/docling)** for multi-format document parsing (PDF, DOCX, PPTX, XLSX, images, and more)
-- OpenAI-compatible LLM endpoints for summarization
+- **[Docling](https://github.com/docling-project/docling)** for layout-aware parsing of PDFs, DOCX, PPTX, XLSX, images, and more
+- OpenAI-compatible LLM endpoints for summarization and optional content refinement
 
 ## Tools/Functions
 
 ### fetchWebContent
 Fetch URLs and convert content to Markdown format with optional filtering and pagination.
 
-- Convert HTML pages to clean Markdown suitable for LLMs
-- **Multi-format document parsing via Docling** - supports 16+ formats:
-  - Documents: PDF, DOCX, PPTX, XLSX
-  - Images: PNG, JPG, JPEG, TIFF, BMP
-  - Other formats: Markdown, CSV, JSON, XML, HTML
+Uses a **multi-tiered extraction pipeline** to maximise content quality:
+1. **Playwright** — renders JavaScript/SPA pages in a headless browser
+2. **Trafilatura** — fast heuristic text-density extraction
+3. **Readability-lxml** — Mozilla-style article extraction
+4. **Docling** — layout-aware parsing for binary documents (PDF, DOCX, PPTX, XLSX, images, CSV, JSON, XML)
+5. **BeautifulSoup** — universal HTML fallback (always succeeds)
+6. **LLM refinement** — optional semantic cleanup pass (`use_llm_refinement=True`)
+
+Other capabilities:
 - Regex-based content filtering with configurable padding
 - Word-level truncation and pagination via `start_word` and `num_words`
 - Optional extraction of links from fetched pages
@@ -171,6 +177,7 @@ Fetch a URL and convert to Markdown.
 | `num_words` | int | `1000` | Maximum words to return |
 | `regex` | str | `None` | Regex pattern to filter content |
 | `regex_padding` | int | `50` | Characters of context around regex matches |
+| `use_llm_refinement` | bool | `False` | When True, apply an LLM cleanup pass on the extracted Markdown (requires LLM provider configuration) |
 
 **Returns:** `{"url": "...", "content": "markdown"}` or `{"url": "...", "error": "..."}`
 
@@ -517,12 +524,20 @@ nssm start WebToolMCP
 ## TODO
 
 - **More search sources** — Add academic and preprint search providers: arXiv, ChemRxiv, etc. (pdf link in results can be fetched or summarized to reduce tokens)
-- **AI-powered scraping** — Add browser automation capabilities via browser-use, Playwright, Skyvern, etc. for sites that require JavaScript rendering or interactive navigation.
 
 ## Architecture Notes
 
-### Async-Only Design
-The server uses `httpx.AsyncClient` for all HTTP operations. There is no browser automation or JavaScript rendering; pages are fetched via direct HTTP requests and parsed with BeautifulSoup.
+### Extraction Pipeline
+The server uses a multi-tiered async extraction pipeline for `fetchWebContent`. Each tier is tried in order; the first result that meets the minimum quality threshold (≥ 50 words) is returned:
+
+1. **Playwright** — a shared headless Chromium browser (singleton) renders the page with JavaScript, enabling content from SPAs and lazy-loaded sites.
+2. **Trafilatura** — applies text-density heuristics to strip boilerplate from the rendered (or raw) HTML.
+3. **Readability-lxml** — Mozilla-style article extraction as a secondary heuristic fallback.
+4. **Docling** — for binary document URLs (PDF, DOCX, etc.), the content bytes are passed directly to Docling's layout-aware converter.
+5. **BeautifulSoup** — universal fallback that always produces output.
+6. **LLM refinement** — an optional final pass that sends the extracted Markdown to a configured LLM for semantic cleanup (enabled via `use_llm_refinement=True`).
+
+All HTTP I/O uses `httpx.AsyncClient`.
 
 ### API Key Security
 All API keys are loaded from the `.env` file at startup. The server never hardcodes credentials and expects them to be provided via environment variables.
@@ -542,8 +557,12 @@ The `days` parameter is mapped to Brave's freshness codes: 1 day = `pd`, 7 days 
 - mcp >= 1.0.0
 - fastapi-mcp >= 0.4.0
 - httpx >= 0.25.0
+- playwright >= 1.40.0
+- trafilatura >= 1.8.0
+- readability-lxml >= 0.8.1
 - beautifulsoup4 >= 4.12.0
 - markdownify >= 0.11.0
+- docling >= 2.0.0
 - python-dotenv >= 1.0.0
 
 **Development:**

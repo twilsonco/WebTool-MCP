@@ -17,6 +17,7 @@ __pycache__/
 
 # test coverage files
 .coverage
+coverage.json
 
 # START Ruler Generated Files
 /.agent/rules/ruler.md

@@ -1897,3 +1897,154 @@ class TestDoclingIntegration:
         # URL with query params should still detect the file extension
         assert is_docling_supported_url("https://example.com/doc.pdf?version=1") is True
         # assert is_docling_supported_url("https://example.com/page.html?ref=home") is False
+
+
+# ---------------------------------------------------------------------------
+# _get_url_extension edge case
+# ---------------------------------------------------------------------------
+
+class TestUrlExtension:
+    def test_no_extension_returns_empty_string(self):
+        from src.mcp_server.server import _get_url_extension
+        assert _get_url_extension("https://example.com/path/resource") == ""
+
+    def test_extension_extracted(self):
+        from src.mcp_server.server import _get_url_extension
+        assert _get_url_extension("https://example.com/file.pdf") == ".pdf"
+
+
+# ---------------------------------------------------------------------------
+# Binary document fetch path
+# ---------------------------------------------------------------------------
+
+class TestBinaryFetchPath:
+    @pytest.mark.asyncio
+    async def test_fetch_binary_url_uses_extract_from_bytes(self):
+        """fetch_web_content routes binary extensions through extract_from_bytes."""
+        from src.mcp_server.extraction.pipeline import ExtractionResult
+
+        binary_result = ExtractionResult(content="PDF content here", method="docling")
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            resp = MagicMock()
+            resp.content = b"%PDF-1.4 binary"
+            resp.raise_for_status = MagicMock()
+            instance.get.return_value = resp
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with patch(
+                "src.mcp_server.server._extraction_pipeline.extract_from_bytes",
+                new=AsyncMock(return_value=binary_result),
+            ):
+                result = await fetch_web_content("https://example.com/document.pdf")
+
+        assert "content" in result
+        assert result["content"] == "PDF content here"
+
+
+# ---------------------------------------------------------------------------
+# _require_auth function
+# ---------------------------------------------------------------------------
+
+class TestRequireAuth:
+    @pytest.mark.asyncio
+    async def test_auth_disabled_when_no_api_keys(self):
+        """_require_auth returns immediately when api_keys is empty."""
+        from src.mcp_server.server import _require_auth
+        # api_keys is empty by default in test environment – should not raise
+        await _require_auth(None)
+
+    @pytest.mark.asyncio
+    async def test_auth_passes_with_valid_token(self):
+        """_require_auth does not raise when a valid Bearer token is supplied."""
+        from src.mcp_server.server import _require_auth
+        from fastapi.security import HTTPAuthorizationCredentials
+
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="good-key")
+        with patch("src.mcp_server.server.api_keys", ["good-key"]):
+            await _require_auth(credentials)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_auth_raises_with_invalid_token(self):
+        """_require_auth raises HTTPException 401 when the token is wrong."""
+        from src.mcp_server.server import _require_auth
+        from fastapi import HTTPException
+        from fastapi.security import HTTPAuthorizationCredentials
+
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad-key")
+        with patch("src.mcp_server.server.api_keys", ["good-key"]):
+            with pytest.raises(HTTPException) as exc_info:
+                await _require_auth(credentials)
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_auth_raises_when_no_credentials_and_keys_set(self):
+        """_require_auth raises 401 when credentials are None and auth is enabled."""
+        from src.mcp_server.server import _require_auth
+        from fastapi import HTTPException
+
+        with patch("src.mcp_server.server.api_keys", ["some-key"]):
+            with pytest.raises(HTTPException) as exc_info:
+                await _require_auth(None)
+        assert exc_info.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Route wrapper functions (cover the return-await lines)
+# ---------------------------------------------------------------------------
+
+class TestRouteWrappers:
+    @pytest.mark.asyncio
+    async def test_api_fetch_web_content_delegates(self):
+        """api_fetch_web_content delegates to fetch_web_content."""
+        from src.mcp_server.server import api_fetch_web_content
+
+        expected = {"url": "https://example.com", "content": "test content"}
+        with patch("src.mcp_server.server.fetch_web_content", new=AsyncMock(return_value=expected)) as mock_fn:
+            result = await api_fetch_web_content(url="https://example.com")
+        assert result == expected
+        mock_fn.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_api_summarize_web_content_delegates(self):
+        """api_summarize_web_content delegates to summarize_web_content."""
+        from src.mcp_server.server import api_summarize_web_content
+
+        expected = {"url": "https://example.com", "summary": "A summary."}
+        with patch("src.mcp_server.server.summarize_web_content", new=AsyncMock(return_value=expected)) as mock_fn:
+            result = await api_summarize_web_content(url="https://example.com")
+        assert result == expected
+        mock_fn.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# async_main entry point
+# ---------------------------------------------------------------------------
+
+class TestAsyncMain:
+    @pytest.mark.asyncio
+    async def test_async_main_calls_stdio_and_runs_server(self):
+        """async_main wires stdio_server and mcp_server.run together."""
+        from contextlib import asynccontextmanager
+        from src.mcp_server.server import async_main
+
+        mock_read = AsyncMock()
+        mock_write = AsyncMock()
+
+        @asynccontextmanager
+        async def mock_stdio_server():
+            yield (mock_read, mock_write)
+
+        mock_mcp_server = MagicMock()
+        mock_mcp_server.create_initialization_options.return_value = {}
+        mock_mcp_server.run = AsyncMock()
+
+        mock_fastapi_mcp = MagicMock()
+        mock_fastapi_mcp.server = mock_mcp_server
+
+        with patch("mcp.server.stdio.stdio_server", mock_stdio_server):
+            with patch("src.mcp_server.server.fastapi_mcp", mock_fastapi_mcp):
+                await async_main()
+
+        mock_mcp_server.run.assert_called_once_with(mock_read, mock_write, {})

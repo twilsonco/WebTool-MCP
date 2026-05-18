@@ -20,8 +20,8 @@ try:
     from docling.document_converter import DocumentConverter
 
     DOCLING_AVAILABLE = True
-except ImportError:
-    DOCLING_AVAILABLE = False
+except ImportError:  # pragma: no cover
+    DOCLING_AVAILABLE = False  # pragma: no cover
 
 # Module-level converter singleton: initialised on first use to avoid the
 # significant startup cost of recreating it on every fetch call.
