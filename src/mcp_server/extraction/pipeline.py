@@ -170,7 +170,7 @@ class ContentExtractionPipeline:
 
     @staticmethod
     def _extract_trafilatura(
-        html: str, include_links: bool = False
+        html: str, include_links: bool = True
     ) -> Optional[str]:
         """Extract main content using Trafilatura's text-density algorithm.
 
@@ -197,7 +197,7 @@ class ContentExtractionPipeline:
 
     @staticmethod
     def _extract_readability(
-        html: str, include_links: bool = False
+        html: str, include_links: bool = True
     ) -> Optional[str]:
         """Extract main content using readability-lxml's article extraction.
 
@@ -232,7 +232,7 @@ class ContentExtractionPipeline:
 
     @staticmethod
     async def _extract_docling_html(
-        html: str, include_links: bool = False
+        html: str, include_links: bool = True
     ) -> Optional[str]:
         """Attempt Docling extraction on raw HTML content.
 
@@ -258,7 +258,7 @@ class ContentExtractionPipeline:
 
     @staticmethod
     async def _extract_beautifulsoup(
-        html: str, include_links: bool = False
+        html: str, include_links: bool = True
     ) -> str:
         """Extract content using BeautifulSoup (always succeeds).
 
@@ -314,7 +314,7 @@ class ContentExtractionPipeline:
         self,
         html: str,
         url: str,
-        include_links: bool = False,
+        include_links: bool = True,
         use_playwright: bool = True,
         use_llm_refinement: bool = False,
         llm_manager=None,
@@ -406,7 +406,7 @@ class ContentExtractionPipeline:
         self,
         content_bytes: bytes,
         file_extension: str,
-        include_links: bool = False,
+        include_links: bool = True,
     ) -> ExtractionResult:
         """Extract content from a binary document (PDF, DOCX, images, …).
 

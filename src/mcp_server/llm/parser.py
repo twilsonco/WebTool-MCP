@@ -111,7 +111,7 @@ def is_html_content(content_type: Optional[str]) -> bool:
 async def parse_with_docling(
     content: bytes,
     file_extension: str,
-    include_links: bool = False,
+    include_links: bool = True,
 ) -> Optional[str]:
     """
     Parse document content using Docling.
@@ -170,7 +170,7 @@ async def parse_with_docling(
 
 async def parse_html_with_beautifulsoup(
     html_content: str,
-    include_links: bool = False,
+    include_links: bool = True,
 ) -> str:
     """
     Parse HTML content using BeautifulSoup and markdownify.

@@ -603,7 +603,7 @@ async def api_search_web(
 )
 async def api_fetch_web_content(
     url: str,
-    include_links: bool = False,
+    include_links: bool = True,
     start_word: int = 0,
     num_words: int = 1000,
     regex: Optional[str] = None,
