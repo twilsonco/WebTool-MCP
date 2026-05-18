@@ -382,7 +382,8 @@ Or using process-based communication, without needing to run the server:
 				"run",
 				"--directory",
 				"/path/to/WebTool-MCP",
-				"webtool-mcp"
+				"webtool-mcp",
+				"--stdio"
 			]
 		}
   }

@@ -23,7 +23,7 @@ End-to-end MCP client test that connects via the streamable-http transport and c
 
 1. Start the MCP server:
    ```bash
-   uv run python src/mcp_server/server.py
+   uv run python src/mcp_server/server.py --http
    ```
 
 2. In a separate terminal, run the test script:

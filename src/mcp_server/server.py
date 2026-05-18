@@ -656,8 +656,6 @@ async def async_main() -> None:
     """Async entry point for stdio-based MCP server (Roo Code / process mode)."""
     from mcp.server.stdio import stdio_server
 
-    print("Starting MCP server (stdio mode)...", flush=True)
-
     # Get the underlying MCP server and its initialization options
     mcp_server = fastapi_mcp.server
     init_options = mcp_server.create_initialization_options()
@@ -669,25 +667,24 @@ async def async_main() -> None:
 def main() -> None:  # pragma: no cover
     """Entry point for the webtool-mcp console script.
     
-    Defaults to stdio mode for Roo Code compatibility.
-    Use --http flag to enable direct HTTP access via uvicorn.
+    Defaults to HTTP mode when run directly. Use --stdio for Roo Code / process mode.
     """
     import argparse
     import asyncio
     import uvicorn
 
     parser = argparse.ArgumentParser(description="WebTool MCP Server")
-    parser.add_argument("--http", action="store_true", help="Run as HTTP server instead of stdio")
+    parser.add_argument("--stdio", action="store_true", help="Run as stdio server instead of HTTP")
     parser.add_argument("--host", default=server_host, help="Bind address (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
     args = parser.parse_args()
 
-    if args.http:
-        print(f"Starting MCP server (HTTP mode on {args.host}:{args.port})...", flush=True)
-        uvicorn.run(app, host=args.host, port=args.port)
-    else:
+    if args.stdio:
         print("Starting MCP server (stdio mode)...", flush=True)
         asyncio.run(async_main())
+    else:
+        print(f"Starting MCP server (HTTP mode on {args.host}:{args.port})...", flush=True)
+        uvicorn.run(app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":  # pragma: no cover
