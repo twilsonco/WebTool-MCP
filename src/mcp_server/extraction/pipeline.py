@@ -438,16 +438,16 @@ class ContentExtractionPipeline:
             return ExtractionResult(content="", method="failed")
 
     async def playwright_fetch_binary(
-        self, url: str, timeout: float = 30.0
+        self, url: str, timeout: float = 30.0, _extra_wait: Optional[float] = None
     ) -> Optional[bytes]:
         """Navigate to *url* with Playwright and capture any binary document payload.
 
         Designed for URLs that serve an HTML loading page before redirecting to a
         binary document (e.g. a PDF download after a JavaScript delay).  Intercepts
-        HTTP responses during navigation and returns the body of the largest
-        substantial response with a non-HTML binary content-type.
+        both HTTP responses and browser download events, returning the bytes of the
+        largest captured payload.
 
-        Returns ``None`` when Playwright is unavailable or no binary response is
+        Returns ``None`` when Playwright is unavailable or no binary payload is
         captured within *timeout* seconds.
         """
         _BINARY_PREFIXES = (
@@ -457,6 +457,8 @@ class ContentExtractionPipeline:
             "application/vnd.ms-",
             "application/octet-stream",
         )
+        # After networkidle, wait up to this long for JS-triggered downloads.
+        extra_wait = _extra_wait if _extra_wait is not None else min(timeout / 3, 10.0)
         try:
             browser = await self._get_browser()
             if browser is None:
@@ -471,6 +473,8 @@ class ContentExtractionPipeline:
                 accept_downloads=True,
             )
             captured: list[bytes] = []
+            download_complete = asyncio.Event()
+            downloaded_data: list[bytes] = []
 
             async def on_response(response) -> None:
                 ct = response.headers.get("content-type", "")
@@ -482,20 +486,42 @@ class ContentExtractionPipeline:
                     except Exception:
                         pass
 
+            async def on_download(download) -> None:
+                try:
+                    path = await download.path()
+                    if path:
+                        def _read_file() -> bytes:
+                            with open(path, "rb") as f:
+                                return f.read()
+                        data = await asyncio.to_thread(_read_file)
+                        if data and len(data) > 512:
+                            downloaded_data.append(data)
+                            download_complete.set()
+                except Exception:
+                    pass
+
             page = await context.new_page()
             page.on("response", on_response)
+            page.on("download", on_download)
 
             try:
-                await page.goto(
-                    url, wait_until="networkidle", timeout=int(timeout * 1000)
-                )
+                try:
+                    await page.goto(
+                        url, wait_until="networkidle", timeout=int(timeout * 1000)
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Playwright navigation ended early (expected for binary downloads): %s",
+                        exc,
+                    )
+                # Wait for any JS-triggered downloads that may start after page load.
+                if not captured and not downloaded_data:
+                    try:
+                        await asyncio.wait_for(download_complete.wait(), timeout=extra_wait)
+                    except asyncio.TimeoutError:
+                        pass
                 # Yield once so any pending response callbacks can complete.
                 await asyncio.sleep(0)
-            except Exception as exc:
-                logger.debug(
-                    "Playwright navigation ended early (expected for binary downloads): %s",
-                    exc,
-                )
             finally:
                 try:
                     await page.close()
@@ -506,7 +532,8 @@ class ContentExtractionPipeline:
                 except Exception:
                     pass
 
-            return max(captured, key=len) if captured else None
+            all_candidates = captured + downloaded_data
+            return max(all_candidates, key=len) if all_candidates else None
         except Exception as exc:
             logger.warning("Playwright binary fetch failed for %s: %s", url, exc)
             return None

@@ -822,7 +822,7 @@ class TestPlaywrightFetchBinary:
         ContentExtractionPipeline._browser = mock_browser
         try:
             result = await ContentExtractionPipeline().playwright_fetch_binary(
-                "https://example.com/doc.pdf"
+                "https://example.com/doc.pdf", _extra_wait=0.01
             )
             assert result is None
         finally:
@@ -849,7 +849,7 @@ class TestPlaywrightFetchBinary:
         ContentExtractionPipeline._browser = mock_browser
         try:
             result = await ContentExtractionPipeline().playwright_fetch_binary(
-                "https://example.com/doc.pdf"
+                "https://example.com/doc.pdf", _extra_wait=0.01
             )
             assert result is None  # body() raised, nothing captured
         finally:
@@ -865,7 +865,7 @@ class TestPlaywrightFetchBinary:
         ContentExtractionPipeline._browser = mock_browser
         try:
             result = await ContentExtractionPipeline().playwright_fetch_binary(
-                "https://example.com/doc.pdf"
+                "https://example.com/doc.pdf", _extra_wait=0.01
             )
             assert result is None
         finally:
@@ -881,7 +881,7 @@ class TestPlaywrightFetchBinary:
         ContentExtractionPipeline._browser = mock_browser
         try:
             result = await ContentExtractionPipeline().playwright_fetch_binary(
-                "https://example.com/doc.pdf"
+                "https://example.com/doc.pdf", _extra_wait=0.01
             )
             assert result is None
         finally:
@@ -897,7 +897,7 @@ class TestPlaywrightFetchBinary:
         ContentExtractionPipeline._browser = mock_browser
         try:
             result = await ContentExtractionPipeline().playwright_fetch_binary(
-                "https://example.com/doc.pdf"
+                "https://example.com/doc.pdf", _extra_wait=0.01
             )
             assert result is None
         finally:
@@ -917,5 +917,69 @@ class TestPlaywrightFetchBinary:
                 "https://example.com/doc.pdf"
             )
             assert result is None
+        finally:
+            ContentExtractionPipeline._browser = original_browser
+
+    @pytest.mark.asyncio
+    async def test_captures_download_event_bytes(self):
+        """Returns bytes captured via the Playwright download event (JS-triggered download)."""
+        import os
+        import tempfile
+
+        pdf_bytes = b"%PDF-1.4 " + b"x" * 600  # > 512 bytes
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = tmp.name
+
+        try:
+            mock_download = AsyncMock()
+            mock_download.path = AsyncMock(return_value=tmp_path)
+
+            captured_handlers: dict = {}
+            mock_browser, _, mock_page = _make_browser_mock()
+            mock_page.on = lambda event, handler: captured_handlers.__setitem__(event, handler)
+
+            async def fake_goto(*args, **kwargs):
+                if "download" in captured_handlers:
+                    await captured_handlers["download"](mock_download)
+
+            mock_page.goto = fake_goto
+
+            original_browser = ContentExtractionPipeline._browser
+            ContentExtractionPipeline._browser = mock_browser
+            try:
+                result = await ContentExtractionPipeline().playwright_fetch_binary(
+                    "https://example.com/doc.pdf", _extra_wait=0.01
+                )
+                assert result == pdf_bytes
+            finally:
+                ContentExtractionPipeline._browser = original_browser
+        finally:
+            os.unlink(tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_download_path_exception_is_swallowed(self):
+        """on_download swallows exceptions from download.path()."""
+        mock_download = AsyncMock()
+        mock_download.path = AsyncMock(side_effect=Exception("download path error"))
+
+        captured_handlers: dict = {}
+        mock_browser, _, mock_page = _make_browser_mock()
+        mock_page.on = lambda event, handler: captured_handlers.__setitem__(event, handler)
+
+        async def fake_goto(*args, **kwargs):
+            if "download" in captured_handlers:
+                await captured_handlers["download"](mock_download)
+
+        mock_page.goto = fake_goto
+
+        original_browser = ContentExtractionPipeline._browser
+        ContentExtractionPipeline._browser = mock_browser
+        try:
+            result = await ContentExtractionPipeline().playwright_fetch_binary(
+                "https://example.com/doc.pdf", _extra_wait=0.01
+            )
+            assert result is None  # download.path() raised, nothing captured
         finally:
             ContentExtractionPipeline._browser = original_browser
