@@ -194,7 +194,7 @@ async def example_llm_refinement():
     print("=" * 60)
 
     result = await real_fetch_web_content(
-        "https://example.com",
+        "https://github.com/docling-project/docling/discussions/1953",
         use_llm_refinement=True,
     )
 
@@ -205,6 +205,48 @@ async def example_llm_refinement():
         print(f"  Content preview: {result['content'][:200]}...")
     else:
         print_result(result)
+
+
+async def example_full_content_fetch():
+    """Example 8: Fetch URLs and print full extracted content.
+
+    Defines a list of URLs to fetch and prints the entire extracted content
+    for each one. Useful for testing extraction on diverse URLs in the wild.
+
+    This example includes:
+      - https://github.com/docling-project/docling/discussions/1953
+        A GitHub discussion page with user comments.
+      - https://file-examples.com/wp-content/storage/2017/10/file-sample_150kB.pdf
+        A PDF file behind a 1-second loading page.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 8: Full Content Fetch (Real-World URLs)")
+    print("=" * 60)
+
+    urls_to_fetch = [
+        "https://github.com/docling-project/docling/discussions/1953",
+        "https://file-examples.com/wp-content/storage/2017/10/file-sample_150kB.pdf",
+    ]
+
+    for url in urls_to_fetch:
+        print(f"\n{'=' * 60}")
+        print(f"Fetching: {url}")
+        print(f"{'=' * 60}")
+
+        result = await real_fetch_web_content(url)
+
+        if "error" in result:
+            print(f"ERROR: {result['error']}")
+        else:
+            content = result.get("content", "")
+            print(f"URL: {result['url']}")
+            print(f"Extraction method: {result.get('extraction_method', 'unknown')}")
+            print(f"Content length: {len(content)} characters")
+            print(f"\n{'─' * 60}")
+            print("FULL CONTENT:")
+            print(f"{'─' * 60}")
+            print(content)
+            print(f"{'─' * 60}")
 
 
 async def main():
@@ -219,6 +261,7 @@ async def main():
     await example_binary_document_formats()
     await example_pdf_fetch()
     await example_llm_refinement()
+    await example_full_content_fetch()
 
     print("\n" + "#" * 60)
     print("# Done!")

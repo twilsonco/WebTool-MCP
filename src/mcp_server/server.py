@@ -486,10 +486,37 @@ async def fetch_web_content(
             resp = await client.get(url, timeout=10.0)
             resp.raise_for_status()
 
-            if is_binary:
+            # Determine routing based on URL extension AND actual response type.
+            # A binary-extension URL may return HTML (e.g. a JS loading/redirect
+            # page) rather than the actual document bytes.
+            actual_content_type = resp.headers.get("content-type", "")
+            is_html_response = (
+                "text/html" in actual_content_type
+                or "application/xhtml" in actual_content_type
+            )
+
+            if is_binary and not is_html_response:
+                # URL directly served binary data – parse it immediately.
                 extraction = await _extraction_pipeline.extract_from_bytes(
                     resp.content, file_ext, include_links
                 )
+            elif is_binary:
+                # Binary-extension URL returned HTML (loading/redirect page).
+                # Use Playwright to execute JS and capture the real binary payload.
+                binary_bytes = await _extraction_pipeline.playwright_fetch_binary(url)
+                if binary_bytes is not None:
+                    extraction = await _extraction_pipeline.extract_from_bytes(
+                        binary_bytes, file_ext, include_links
+                    )
+                else:
+                    extraction = await _extraction_pipeline.extract_from_html(
+                        html=resp.text,
+                        url=url,
+                        include_links=include_links,
+                        use_playwright=True,
+                        use_llm_refinement=use_llm_refinement,
+                        llm_manager=llm_manager if use_llm_refinement else None,
+                    )
             else:
                 extraction = await _extraction_pipeline.extract_from_html(
                     html=resp.text,

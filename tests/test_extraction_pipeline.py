@@ -736,3 +736,186 @@ class TestDoclingBsFallbackDirect:
         ):
             result = await ContentExtractionPipeline._extract_beautifulsoup("<html>test</html>")
         assert result == "bs4 result"
+
+
+# ---------------------------------------------------------------------------
+# playwright_fetch_binary
+# ---------------------------------------------------------------------------
+
+def _make_browser_mock():
+    """Return a mock browser whose new_context returns a usable mock context."""
+    mock_page = AsyncMock()
+    mock_page.on = MagicMock()
+    mock_page.goto = AsyncMock()
+    mock_page.close = AsyncMock()
+
+    mock_context = AsyncMock()
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.close = AsyncMock()
+
+    mock_browser = MagicMock()
+    mock_browser.browser_type = "chromium"
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+
+    return mock_browser, mock_context, mock_page
+
+
+class TestPlaywrightFetchBinary:
+    """Tests for ContentExtractionPipeline.playwright_fetch_binary."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_browser(self):
+        """Returns None when Playwright is unavailable (no browser)."""
+        original_browser = ContentExtractionPipeline._browser
+        original_pw = ContentExtractionPipeline._playwright_instance
+        original_lock = ContentExtractionPipeline._lock
+        ContentExtractionPipeline._lock = None
+        ContentExtractionPipeline._browser = None
+        ContentExtractionPipeline._playwright_instance = None
+        try:
+            with patch.dict("sys.modules", {"playwright.async_api": None}):
+                result = await ContentExtractionPipeline().playwright_fetch_binary(
+                    "https://example.com/doc.pdf"
+                )
+            assert result is None
+        finally:
+            ContentExtractionPipeline._browser = original_browser
+            ContentExtractionPipeline._playwright_instance = original_pw
+            ContentExtractionPipeline._lock = original_lock
+
+    @pytest.mark.asyncio
+    async def test_captures_binary_response_bytes(self):
+        """Returns bytes when a binary content-type response is intercepted."""
+        pdf_bytes = b"%PDF-1.4 " + b"x" * 600  # > 512 bytes
+
+        mock_response = AsyncMock()
+        mock_response.headers = {"content-type": "application/pdf"}
+        mock_response.body = AsyncMock(return_value=pdf_bytes)
+
+        captured_handlers: dict = {}
+
+        mock_browser, mock_context, mock_page = _make_browser_mock()
+        mock_page.on = lambda event, handler: captured_handlers.__setitem__(event, handler)
+
+        async def fake_goto(*args, **kwargs):
+            if "response" in captured_handlers:
+                await captured_handlers["response"](mock_response)
+
+        mock_page.goto = fake_goto
+
+        original_browser = ContentExtractionPipeline._browser
+        ContentExtractionPipeline._browser = mock_browser
+        try:
+            result = await ContentExtractionPipeline().playwright_fetch_binary(
+                "https://example.com/doc.pdf"
+            )
+            assert result == pdf_bytes
+        finally:
+            ContentExtractionPipeline._browser = original_browser
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_binary_response(self):
+        """Returns None when navigation completes but no binary response is captured."""
+        mock_browser, _, _ = _make_browser_mock()
+
+        original_browser = ContentExtractionPipeline._browser
+        ContentExtractionPipeline._browser = mock_browser
+        try:
+            result = await ContentExtractionPipeline().playwright_fetch_binary(
+                "https://example.com/doc.pdf"
+            )
+            assert result is None
+        finally:
+            ContentExtractionPipeline._browser = original_browser
+
+    @pytest.mark.asyncio
+    async def test_response_body_exception_is_swallowed(self):
+        """on_response swallows exceptions from response.body()."""
+        mock_response = AsyncMock()
+        mock_response.headers = {"content-type": "application/pdf"}
+        mock_response.body = AsyncMock(side_effect=Exception("body read error"))
+
+        captured_handlers: dict = {}
+        mock_browser, _, mock_page = _make_browser_mock()
+        mock_page.on = lambda event, handler: captured_handlers.__setitem__(event, handler)
+
+        async def fake_goto(*args, **kwargs):
+            if "response" in captured_handlers:
+                await captured_handlers["response"](mock_response)
+
+        mock_page.goto = fake_goto
+
+        original_browser = ContentExtractionPipeline._browser
+        ContentExtractionPipeline._browser = mock_browser
+        try:
+            result = await ContentExtractionPipeline().playwright_fetch_binary(
+                "https://example.com/doc.pdf"
+            )
+            assert result is None  # body() raised, nothing captured
+        finally:
+            ContentExtractionPipeline._browser = original_browser
+
+    @pytest.mark.asyncio
+    async def test_navigation_exception_is_swallowed(self):
+        """Navigation exceptions are debug-logged and execution continues."""
+        mock_browser, _, mock_page = _make_browser_mock()
+        mock_page.goto = AsyncMock(side_effect=Exception("navigation failed"))
+
+        original_browser = ContentExtractionPipeline._browser
+        ContentExtractionPipeline._browser = mock_browser
+        try:
+            result = await ContentExtractionPipeline().playwright_fetch_binary(
+                "https://example.com/doc.pdf"
+            )
+            assert result is None
+        finally:
+            ContentExtractionPipeline._browser = original_browser
+
+    @pytest.mark.asyncio
+    async def test_page_close_exception_is_swallowed(self):
+        """page.close() exceptions do not propagate."""
+        mock_browser, _, mock_page = _make_browser_mock()
+        mock_page.close = AsyncMock(side_effect=Exception("close error"))
+
+        original_browser = ContentExtractionPipeline._browser
+        ContentExtractionPipeline._browser = mock_browser
+        try:
+            result = await ContentExtractionPipeline().playwright_fetch_binary(
+                "https://example.com/doc.pdf"
+            )
+            assert result is None
+        finally:
+            ContentExtractionPipeline._browser = original_browser
+
+    @pytest.mark.asyncio
+    async def test_context_close_exception_is_swallowed(self):
+        """context.close() exceptions do not propagate."""
+        mock_browser, mock_context, _ = _make_browser_mock()
+        mock_context.close = AsyncMock(side_effect=Exception("context close error"))
+
+        original_browser = ContentExtractionPipeline._browser
+        ContentExtractionPipeline._browser = mock_browser
+        try:
+            result = await ContentExtractionPipeline().playwright_fetch_binary(
+                "https://example.com/doc.pdf"
+            )
+            assert result is None
+        finally:
+            ContentExtractionPipeline._browser = original_browser
+
+    @pytest.mark.asyncio
+    async def test_outer_exception_returns_none(self):
+        """Exceptions from new_context() are caught and return None."""
+        mock_browser = MagicMock()
+        mock_browser.browser_type = "chromium"
+        mock_browser.new_context = AsyncMock(side_effect=Exception("context creation failed"))
+
+        original_browser = ContentExtractionPipeline._browser
+        ContentExtractionPipeline._browser = mock_browser
+        try:
+            result = await ContentExtractionPipeline().playwright_fetch_binary(
+                "https://example.com/doc.pdf"
+            )
+            assert result is None
+        finally:
+            ContentExtractionPipeline._browser = original_browser

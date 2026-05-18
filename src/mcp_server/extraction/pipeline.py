@@ -436,3 +436,77 @@ class ContentExtractionPipeline:
             return ExtractionResult(content=bs_result or "", method="beautifulsoup")
         except Exception:
             return ExtractionResult(content="", method="failed")
+
+    async def playwright_fetch_binary(
+        self, url: str, timeout: float = 30.0
+    ) -> Optional[bytes]:
+        """Navigate to *url* with Playwright and capture any binary document payload.
+
+        Designed for URLs that serve an HTML loading page before redirecting to a
+        binary document (e.g. a PDF download after a JavaScript delay).  Intercepts
+        HTTP responses during navigation and returns the body of the largest
+        substantial response with a non-HTML binary content-type.
+
+        Returns ``None`` when Playwright is unavailable or no binary response is
+        captured within *timeout* seconds.
+        """
+        _BINARY_PREFIXES = (
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats",
+            "application/vnd.ms-",
+            "application/octet-stream",
+        )
+        try:
+            browser = await self._get_browser()
+            if browser is None:
+                return None
+
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                accept_downloads=True,
+            )
+            captured: list[bytes] = []
+
+            async def on_response(response) -> None:
+                ct = response.headers.get("content-type", "")
+                if any(ct.startswith(prefix) for prefix in _BINARY_PREFIXES):
+                    try:
+                        body = await response.body()
+                        if body and len(body) > 512:
+                            captured.append(body)
+                    except Exception:
+                        pass
+
+            page = await context.new_page()
+            page.on("response", on_response)
+
+            try:
+                await page.goto(
+                    url, wait_until="networkidle", timeout=int(timeout * 1000)
+                )
+                # Yield once so any pending response callbacks can complete.
+                await asyncio.sleep(0)
+            except Exception as exc:
+                logger.debug(
+                    "Playwright navigation ended early (expected for binary downloads): %s",
+                    exc,
+                )
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+
+            return max(captured, key=len) if captured else None
+        except Exception as exc:
+            logger.warning("Playwright binary fetch failed for %s: %s", url, exc)
+            return None

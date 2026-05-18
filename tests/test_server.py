@@ -1930,6 +1930,7 @@ class TestBinaryFetchPath:
             resp = MagicMock()
             resp.content = b"%PDF-1.4 binary"
             resp.raise_for_status = MagicMock()
+            resp.headers = {"content-type": "application/pdf"}
             instance.get.return_value = resp
             mock_client.return_value.__aenter__.return_value = instance
 
@@ -1941,6 +1942,68 @@ class TestBinaryFetchPath:
 
         assert "content" in result
         assert result["content"] == "PDF content here"
+
+    @pytest.mark.asyncio
+    async def test_binary_url_html_response_playwright_succeeds(self):
+        """Binary URL returning HTML uses playwright_fetch_binary, then extract_from_bytes."""
+        from src.mcp_server.extraction.pipeline import ExtractionResult
+
+        pdf_bytes = b"%PDF-1.4 " + b"x" * 600
+        binary_result = ExtractionResult(content="PDF via playwright", method="docling")
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            resp = MagicMock()
+            resp.content = b"<html><body>Loading...</body></html>"
+            resp.text = "<html><body>Loading...</body></html>"
+            resp.raise_for_status = MagicMock()
+            resp.headers = {"content-type": "text/html; charset=utf-8"}
+            instance.get.return_value = resp
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with patch(
+                "src.mcp_server.server._extraction_pipeline.playwright_fetch_binary",
+                new=AsyncMock(return_value=pdf_bytes),
+            ):
+                with patch(
+                    "src.mcp_server.server._extraction_pipeline.extract_from_bytes",
+                    new=AsyncMock(return_value=binary_result),
+                ):
+                    result = await fetch_web_content("https://example.com/document.pdf")
+
+        assert "content" in result
+        assert result["content"] == "PDF via playwright"
+
+    @pytest.mark.asyncio
+    async def test_binary_url_html_response_playwright_fails_falls_back_to_html(self):
+        """Falls back to extract_from_html when playwright_fetch_binary returns None."""
+        from src.mcp_server.extraction.pipeline import ExtractionResult
+
+        html_result = ExtractionResult(
+            content="HTML fallback content", method="playwright+trafilatura"
+        )
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            resp = MagicMock()
+            resp.text = "<html><body>Loading...</body></html>"
+            resp.raise_for_status = MagicMock()
+            resp.headers = {"content-type": "text/html; charset=utf-8"}
+            instance.get.return_value = resp
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with patch(
+                "src.mcp_server.server._extraction_pipeline.playwright_fetch_binary",
+                new=AsyncMock(return_value=None),
+            ):
+                with patch(
+                    "src.mcp_server.server._extraction_pipeline.extract_from_html",
+                    new=AsyncMock(return_value=html_result),
+                ):
+                    result = await fetch_web_content("https://example.com/document.pdf")
+
+        assert "content" in result
+        assert result["content"] == "HTML fallback content"
 
 
 # ---------------------------------------------------------------------------
