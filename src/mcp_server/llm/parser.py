@@ -18,10 +18,24 @@ from urllib.parse import urlparse
 try:
     from docling.datamodel.base_models import DocumentStream
     from docling.document_converter import DocumentConverter
-    
+
     DOCLING_AVAILABLE = True
 except ImportError:
     DOCLING_AVAILABLE = False
+
+# Module-level converter singleton: initialised on first use to avoid the
+# significant startup cost of recreating it on every fetch call.
+_docling_converter: Optional["DocumentConverter"] = None
+
+
+def _get_docling_converter() -> Optional["DocumentConverter"]:
+    """Return (lazily initialised) shared DocumentConverter instance."""
+    global _docling_converter
+    if not DOCLING_AVAILABLE:
+        return None
+    if _docling_converter is None:
+        _docling_converter = DocumentConverter()
+    return _docling_converter
 
 # Supported file extensions for Docling parsing
 DOCLING_SUPPORTED_EXTENSIONS: Set[str] = {
@@ -114,8 +128,10 @@ async def parse_with_docling(
         return None
     
     try:
-        # Initialize the document converter (use default settings)
-        converter = DocumentConverter()
+        # Reuse the module-level converter singleton.
+        converter = _get_docling_converter()
+        if converter is None:
+            return None
         
         # Create a DocumentStream from the binary content
         doc_stream = DocumentStream(

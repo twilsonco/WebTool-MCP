@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, Depends, HTTPException
@@ -14,12 +15,8 @@ from dotenv import load_dotenv
 
 from mcp_server.auth import StaticTokenVerifier, load_api_keys_from_env
 from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
-from mcp_server.llm.parser import (
-    DOCLING_SUPPORTED_EXTENSIONS,
-    is_docling_supported_url,
-    parse_with_docling,
-    parse_html_with_beautifulsoup
-)
+from mcp_server.llm.parser import DOCLING_SUPPORTED_EXTENSIONS
+from mcp_server.extraction import ContentExtractionPipeline
 
 load_dotenv()
 
@@ -75,10 +72,30 @@ else:
 # LLM Manager with multi-provider failover support
 llm_manager = LLMManager()
 
+# Content extraction pipeline (Playwright → Trafilatura → Docling → BS4)
+_extraction_pipeline = ContentExtractionPipeline()
+
 # Default headers for HTTP requests (User-Agent required by many sites)
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
+
+# File extensions treated as binary documents – routed directly to Docling.
+# HTML and plain-text variants are handled by the full HTML pipeline instead.
+_BINARY_DOC_EXTENSIONS = {
+    ".pdf", ".docx", ".pptx", ".xlsx",
+    ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp",
+    ".csv", ".json", ".xml",
+}
+
+
+def _get_url_extension(url: str) -> str:
+    """Return the lower-case file extension from a URL path, or empty string."""
+    path = urlparse(url).path
+    filename = path.rsplit("/", 1)[-1]
+    if "." in filename:
+        return "." + filename.rsplit(".", 1)[1].lower().split("?")[0]
+    return ""
 
 
 def _get_configured_providers() -> list[str]:
@@ -429,13 +446,24 @@ async def fetch_web_content(
     start_word: int = 0,
     num_words: int = 1000,
     regex: str = None,
-    regex_padding: int = 50
+    regex_padding: int = 50,
+    use_llm_refinement: bool = False,
 ) -> dict:
     """
-    Fetch a URL, convert to markdown, and optionally filter via regex.
+    Fetch a URL, extract its main content as Markdown, and optionally filter via regex.
 
-    Supports multiple document formats through Docling (PDF, DOCX, PPTX, XLSX,
-    images, etc.) and falls back to BeautifulSoup for regular HTML pages.
+    Uses a multi-tiered extraction pipeline that cascades through increasingly
+    powerful (and slower) extraction strategies until sufficient content is
+    obtained or all tiers are exhausted:
+
+      1. Dynamic Rendering (Playwright) – executes JavaScript for SPAs.
+      2. Heuristic/Text-Density (Trafilatura → Readability-lxml) – removes boilerplate.
+      3. Layout-Aware (Docling) – handles tables and complex document structures.
+      4. Fallback (BeautifulSoup) – always-succeeds minimal HTML converter.
+      5. Cognitive Refinement (LLM, optional) – semantic cleanup pass.
+
+    Binary documents (PDF, DOCX, PPTX, XLSX, images) are routed directly to
+    Docling (Tier 3) and bypass the HTML pipeline.
 
     Args:
         url: The URL to fetch (required)
@@ -444,50 +472,37 @@ async def fetch_web_content(
         num_words: Maximum words to return (default 1000)
         regex: Regex pattern to filter content
         regex_padding: Characters of context around regex matches (default 50)
+        use_llm_refinement: When True, apply an optional LLM cleanup pass if
+            content quality is still poor after all structural tiers (default False)
 
     Returns:
         Dict with 'url' and 'content' keys, or 'error' on failure.
     """
+    file_ext = _get_url_extension(url)
+    is_binary = file_ext in _BINARY_DOC_EXTENSIONS
+
     async with httpx.AsyncClient(follow_redirects=True, headers=DEFAULT_HEADERS) as client:
         try:
             resp = await client.get(url, timeout=10.0)
             resp.raise_for_status()
-            
-            # Check if URL points to a Docling-supported document format
-            use_docling = is_docling_supported_url(url)
-            
-            if use_docling:
-                # Parse document using Docling
-                content_bytes = resp.content
-                
-                # Extract file extension from URL
-                file_ext = "." + url.split(".")[-1].lower().split("?")[0]
-                
-                # Only attempt Docling if the extension is actually supported
-                # (handles case of URLs without extensions that were treated as HTML)
-                if file_ext in DOCLING_SUPPORTED_EXTENSIONS:
-                    docling_result = await parse_with_docling(content_bytes, file_ext, include_links)
-                    
-                    if docling_result:
-                        content = docling_result
-                    else:
-                        # Docling failed, try BeautifulSoup as fallback for text-based formats
-                        content = await parse_html_with_beautifulsoup(resp.text, include_links)
-                else:
-                    # No supported extension (e.g., .com, .net) but is_docling_supported_url
-                    # returned True - this means it's likely HTML content, so try Docling first
-                    docling_result = await parse_with_docling(content_bytes, ".html", include_links)
-                    
-                    if docling_result:
-                        content = docling_result
-                    else:
-                        # Docling failed, try BeautifulSoup as fallback
-                        content = await parse_html_with_beautifulsoup(resp.text, include_links)
-            else:
-                # Regular HTML page - use BeautifulSoup
-                content = await parse_html_with_beautifulsoup(resp.text, include_links)
 
-            # Apply Regex filtering/padding if provided
+            if is_binary:
+                extraction = await _extraction_pipeline.extract_from_bytes(
+                    resp.content, file_ext, include_links
+                )
+            else:
+                extraction = await _extraction_pipeline.extract_from_html(
+                    html=resp.text,
+                    url=url,
+                    include_links=include_links,
+                    use_playwright=True,
+                    use_llm_refinement=use_llm_refinement,
+                    llm_manager=llm_manager if use_llm_refinement else None,
+                )
+
+            content = extraction.content
+
+            # Apply regex filtering/padding if provided
             if regex:
                 pattern = re.compile(regex)
                 matches = list(pattern.finditer(content))
@@ -501,9 +516,9 @@ async def fetch_web_content(
                 else:
                     content = "No matches found for regex."
 
-            # Word truncation
+            # Word-based pagination / truncation
             words = content.split()
-            truncated = " ".join(words[start_word : start_word + num_words])
+            truncated = " ".join(words[start_word: start_word + num_words])
             return {"url": url, "content": truncated}
         except Exception as e:
             return {"url": url, "error": f"Error fetching {url}: {str(e)}"}
@@ -551,6 +566,7 @@ async def api_fetch_web_content(
     num_words: int = 1000,
     regex: Optional[str] = None,
     regex_padding: int = 50,
+    use_llm_refinement: bool = False,
 ) -> dict:
     return await fetch_web_content(
         url=url,
@@ -559,6 +575,7 @@ async def api_fetch_web_content(
         num_words=num_words,
         regex=regex,
         regex_padding=regex_padding,
+        use_llm_refinement=use_llm_refinement,
     )
 
 

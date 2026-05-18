@@ -11,6 +11,9 @@ dependencies = [
     "markdownify>=0.11.0",
     "python-dotenv>=1.0.0",
     "docling>=2.0.0",
+    "playwright>=1.40.0",
+    "trafilatura>=1.8.0",
+    "readability-lxml>=0.8.1",
 ]
 
 [project.scripts]

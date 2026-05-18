@@ -7,67 +7,85 @@ from src.mcp_server.server import (
     fetch_web_content, search_web, summarize_web_content, _call_llm,
     _get_configured_providers, _brave_freshness,
 )
+from src.mcp_server.extraction.pipeline import ExtractionResult
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_html_response(html: str) -> MagicMock:
+    """Return a mock httpx response that yields *html* as its text."""
+    mock = MagicMock()
+    mock.text = html
+    mock.content = html.encode()
+    mock.raise_for_status = MagicMock()
+    return mock
+
+
+def _patch_pipeline(content: str, method: str = "static+trafilatura"):
+    """Patch the extraction pipeline to return a controlled ExtractionResult."""
+    return patch(
+        "src.mcp_server.server._extraction_pipeline.extract_from_html",
+        new=AsyncMock(return_value=ExtractionResult(content=content, method=method)),
+    )
 
 
 class TestWebFetch:
     @pytest.mark.asyncio
     async def test_fetch_web_content_single_url_success(self):
-        html = "<html><body><h1>Test</h1><p>Content here.</p></body></html>"
-
-        mock_response = MagicMock()
-        mock_response.text = html
-        mock_response.raise_for_status = MagicMock()
+        expected_content = "Test Content here"
 
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
-            instance.get.return_value = mock_response
+            instance.get.return_value = _make_html_response(
+                "<html><body><h1>Test</h1><p>Content here.</p></body></html>"
+            )
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await fetch_web_content("https://example.com")
+            with _patch_pipeline(expected_content):
+                result = await fetch_web_content("https://example.com")
 
-            assert "url" in result
-            assert result["url"] == "https://example.com"
-            # Content should contain converted markdown from the HTML
-            content_lower = result["content"].lower()
-            assert any(word in content_lower for word in ["test", "content"])
+        assert result["url"] == "https://example.com"
+        content_lower = result["content"].lower()
+        assert any(word in content_lower for word in ["test", "content"])
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_with_regex_filter(self):
-        html = "<html><body>ERROR_CODE: 123 ERROR_TYPE: critical</body></html>"
-
-        mock_response = MagicMock()
-        mock_response.text = html
-        mock_response.raise_for_status = MagicMock()
+        pipeline_content = "ERROR_CODE: 123 ERROR_TYPE: critical"
 
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
-            instance.get.return_value = mock_response
+            instance.get.return_value = _make_html_response(
+                "<html><body>ERROR_CODE: 123 ERROR_TYPE: critical</body></html>"
+            )
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await fetch_web_content("https://example.com", regex="ERROR_", regex_padding=10)
+            with _patch_pipeline(pipeline_content):
+                result = await fetch_web_content(
+                    "https://example.com", regex="ERROR_", regex_padding=10
+                )
 
-            assert "url" in result
-            # Should have matched content or no-match message
-            if "content" in result:
-                assert len(result["content"]) > 0
+        assert "url" in result
+        if "content" in result:
+            assert len(result["content"]) > 0
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_word_truncation(self):
-        html = "<p>" + " ".join(["word"] * 200) + "</p>"
-
-        mock_response = MagicMock()
-        mock_response.text = html
-        mock_response.raise_for_status = MagicMock()
+        pipeline_content = " ".join(["word"] * 200)
 
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
-            instance.get.return_value = mock_response
+            instance.get.return_value = _make_html_response(
+                "<p>" + pipeline_content + "</p>"
+            )
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await fetch_web_content("https://example.com", num_words=50)
+            with _patch_pipeline(pipeline_content):
+                result = await fetch_web_content("https://example.com", num_words=50)
 
-            words = result["content"].split()
-            assert len(words) <= 55  # Allow small margin for markdown conversion overhead
+        words = result["content"].split()
+        assert len(words) <= 55  # Allow small margin for markdown conversion
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_http_error(self):
@@ -80,97 +98,125 @@ class TestWebFetch:
 
             result = await fetch_web_content("https://example.com/notfound")
 
-            assert "error" in result
+        assert "error" in result
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_regex_no_match(self):
-        html = "<p>No errors here, just normal content.</p>"
-
-        mock_response = MagicMock()
-        mock_response.text = html
-        mock_response.raise_for_status = MagicMock()
+        pipeline_content = "No errors here, just normal content."
 
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
-            instance.get.return_value = mock_response
+            instance.get.return_value = _make_html_response(
+                "<p>No errors here, just normal content.</p>"
+            )
             mock_client.return_value.__aenter__.return_value = instance
 
-            result = await fetch_web_content("https://example.com", regex="NONEXISTENT_PATTERN_", regex_padding=10)
+            with _patch_pipeline(pipeline_content):
+                result = await fetch_web_content(
+                    "https://example.com",
+                    regex="NONEXISTENT_PATTERN_",
+                    regex_padding=10,
+                )
 
-            assert "content" in result
-            assert "No matches found" in result["content"]
+        assert "content" in result
+        assert "No matches found" in result["content"]
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_include_links(self):
-        html = '<html><body><a href="https://link.com">Click here</a> and <a href="https://other.com">Other</a></body></html>'
+        pipeline_content_links = "[Click here](https://link.com) and [Other](https://other.com)"
+        pipeline_content_no_links = "Click here and Other"
 
-        mock_response = MagicMock()
-        mock_response.text = html
-        mock_response.raise_for_status = MagicMock()
+        html = '<html><body><a href="https://link.com">Click here</a> and <a href="https://other.com">Other</a></body></html>'
 
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
-            instance.get.return_value = mock_response
+            instance.get.return_value = _make_html_response(html)
             mock_client.return_value.__aenter__.return_value = instance
 
-            # With include_links=True, anchor tags should be preserved
-            result_with = await fetch_web_content("https://example.com", include_links=True)
-            # With include_links=False (default), anchor tags are unwrapped
-            result_without = await fetch_web_content("https://example.com", include_links=False)
+            with _patch_pipeline(pipeline_content_links):
+                result_with = await fetch_web_content(
+                    "https://example.com", include_links=True
+                )
 
-        # Both should return valid results with url and content
-        assert "url" in result_with
-        assert "content" in result_with
-        assert "url" in result_without
-        assert "content" in result_without
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.get.return_value = _make_html_response(html)
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with _patch_pipeline(pipeline_content_no_links):
+                result_without = await fetch_web_content(
+                    "https://example.com", include_links=False
+                )
+
+        assert "url" in result_with and "content" in result_with
+        assert "url" in result_without and "content" in result_without
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_start_word_pagination(self):
-        html = "<p>" + " ".join([f"word{i}" for i in range(100)]) + "</p>"
-
-        mock_response = MagicMock()
-        mock_response.text = html
-        mock_response.raise_for_status = MagicMock()
+        words = [f"word{i}" for i in range(100)]
+        pipeline_content = " ".join(words)
 
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
-            instance.get.return_value = mock_response
+            instance.get.return_value = _make_html_response(
+                "<p>" + pipeline_content + "</p>"
+            )
             mock_client.return_value.__aenter__.return_value = instance
 
-            # Page 1: words 0-9
-            result_page1 = await fetch_web_content("https://example.com", start_word=0, num_words=10)
-            # Page 2: words 50-59
-            result_page2 = await fetch_web_content("https://example.com", start_word=50, num_words=10)
+            with _patch_pipeline(pipeline_content):
+                result_page1 = await fetch_web_content(
+                    "https://example.com", start_word=0, num_words=10
+                )
+            with _patch_pipeline(pipeline_content):
+                result_page2 = await fetch_web_content(
+                    "https://example.com", start_word=50, num_words=10
+                )
 
-        content_page1 = result_page1["content"]
-        content_page2 = result_page2["content"]
-        # The two pages should contain different content
-        assert content_page1 != content_page2
+        assert result_page1["content"] != result_page2["content"]
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_regex_padding(self):
-        # Use a pattern without underscores (markdownify escapes underscores)
-        html = "<p>prefix content CRITICAL: 123 suffix content more text</p>"
-
-        mock_response = MagicMock()
-        mock_response.text = html
-        mock_response.raise_for_status = MagicMock()
+        pipeline_content = "prefix content CRITICAL: 123 suffix content more text"
 
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
-            instance.get.return_value = mock_response
+            instance.get.return_value = _make_html_response(
+                "<p>" + pipeline_content + "</p>"
+            )
             mock_client.return_value.__aenter__.return_value = instance
 
-            # Small padding: minimal context around match
-            result_small = await fetch_web_content("https://example.com", regex="CRITICAL", regex_padding=5)
-            # Large padding: more context around match
-            result_large = await fetch_web_content("https://example.com", regex="CRITICAL", regex_padding=100)
+            with _patch_pipeline(pipeline_content):
+                result_small = await fetch_web_content(
+                    "https://example.com", regex="CRITICAL", regex_padding=5
+                )
+            with _patch_pipeline(pipeline_content):
+                result_large = await fetch_web_content(
+                    "https://example.com", regex="CRITICAL", regex_padding=100
+                )
 
-        content_small = result_small["content"]
-        content_large = result_large["content"]
-        # Both should match (not "No matches found")
-        assert "No matches" not in content_small
-        assert "No matches" not in content_large
+        assert "No matches" not in result_small["content"]
+        assert "No matches" not in result_large["content"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_web_content_llm_refinement_param_accepted(self):
+        """use_llm_refinement parameter should be passed through without error."""
+        pipeline_content = "some extracted content"
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.get.return_value = _make_html_response(
+                "<p>some extracted content</p>"
+            )
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with _patch_pipeline(pipeline_content):
+                result = await fetch_web_content(
+                    "https://example.com", use_llm_refinement=False
+                )
+
+        assert "content" in result
+
+
 
 
 class TestWebSearch:
@@ -1741,19 +1787,22 @@ class TestDoclingIntegration:
         mock_response.content = html.encode()
         mock_response.raise_for_status = MagicMock()
 
+        expected_content = "Test Page Content here"
+
         with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
             instance = AsyncMock()
             instance.get.return_value = mock_response
             mock_client.return_value.__aenter__.return_value = instance
 
-            # Regular HTML page should still work with BeautifulSoup
-            result = await fetch_web_content("https://example.com")
+            with _patch_pipeline(expected_content):
+                # Regular HTML page should still work with BeautifulSoup
+                result = await fetch_web_content("https://example.com")
 
-            assert "url" in result
-            assert result["url"] == "https://example.com"
-            # Content should contain converted markdown from the HTML
-            content_lower = result["content"].lower()
-            assert any(word in content_lower for word in ["test", "content"])
+        assert "url" in result
+        assert result["url"] == "https://example.com"
+        # Content should contain converted markdown from the HTML
+        content_lower = result["content"].lower()
+        assert any(word in content_lower for word in ["test", "content"])
 
     @pytest.mark.asyncio
     async def test_fetch_docling_supported_formats(self):
