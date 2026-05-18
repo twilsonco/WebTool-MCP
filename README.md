@@ -372,6 +372,23 @@ If the server requires Bearer token authentication (when `MCP_API_KEYS` is set),
 }
 ```
 
+Or using process-based communication, without needing to run the server:
+```json
+{
+	"mcpServers": {
+		"web tool": {
+			"command": "uv",
+			"args": [
+				"run",
+				"--directory",
+				"/path/to/WebTool-MCP",
+				"webtool-mcp"
+			]
+		}
+  }
+}
+```
+
 After editing the configuration, restart Claude Desktop to load the new MCP server.
 
 ## Testing
