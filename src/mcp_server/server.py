@@ -413,14 +413,14 @@ async def summarize_web_content(
     Returns:
         Dict with 'url' and 'summary', or 'error' on fetch/LLM failure.
     """
-    # Fetch content from the URL
+    # Fetch full content without truncation for summarization
     fetch_result = await fetch_web_content(
         url,
-        num_words=max_num_words,
+        num_words=1000000,  # Fetch essentially all content; limit enforced by LLM prompt
         regex=None  # No filtering; full content for summarization
     )
 
-    system_prompt = summary_prompt if summary_prompt else DEFAULT_SUMMARY_PROMPT
+    system_prompt = DEFAULT_SUMMARY_PROMPT + (f"\n\n**More importantly: {summary_prompt}**" if summary_prompt else "") + f"\n**You produce summaries using no more than {max_num_words} words.**"
 
     # Check for fetch errors
     content = fetch_result.get("content", "")
@@ -433,7 +433,8 @@ async def summarize_web_content(
         return {"url": url, "error": content[:100]}
 
     try:
-        user_prompt = f"Summarize the following web content:\n\n{content}"
+        # Pass word limit to LLM prompt; model enforces the constraint
+        user_prompt = f"Summarize the following web content in no more than {max_num_words} words:\n\n{content}"
         summary_text = await _call_llm(user_prompt, system_prompt)
         return {"url": url, "summary": summary_text.strip()}
     except RuntimeError as e:
