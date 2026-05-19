@@ -16,6 +16,7 @@ Extraction Pipeline (applied in order, best result wins):
 5. BeautifulSoup - universal HTML fallback (always succeeds)
 6. LLM refinement - optional semantic cleanup pass (use_llm_refinement=True)
 """
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -31,6 +32,86 @@ load_dotenv(project_root / ".env")
 
 # Import the actual implementation functions from server.py
 from src.mcp_server.server import fetch_web_content as real_fetch_web_content, _BINARY_DOC_EXTENSIONS
+
+
+def parse_example_selection(selection: str | None) -> set[int]:
+    """Parse comma-separated/range example selection like '1-3,5,7' into a set of integers.
+    
+    Args:
+        selection: Comma-separated list with optional ranges, e.g., '1-3,5,7' or '1,2,3'
+        
+    Returns:
+        Set of example numbers (1-indexed)
+        
+    Examples:
+        '1-3,5,7' -> {1, 2, 3, 5, 7}
+        '1,2,3'   -> {1, 2, 3}
+        '5'       -> {5}
+    """
+    if not selection:
+        return set()
+    
+    selected = set()
+    parts = selection.split(',')
+    
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        
+        if '-' in part:
+            range_parts = part.split('-')
+            if len(range_parts) == 2:
+                try:
+                    start, end = int(range_parts[0]), int(range_parts[1])
+                    if start <= end:
+                        selected.update(range(start, end + 1))
+                except ValueError:
+                    pass
+        else:
+            try:
+                selected.add(int(part))
+            except ValueError:
+                pass
+    
+    return selected
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="fetchWebContent examples demonstrating various features and use cases.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                      Run all 8 examples
+  %(prog)s 1                    Run only example 1 (basic fetch)
+  %(prog)s 1-3                  Run examples 1, 2, and 3
+  %(prog)s 1,3,5                Run examples 1, 3, and 5
+  %(prog)s 2-4,7                Run examples 2, 3, 4, and 7
+  
+Example functions (numbered for selection):
+  1. example_basic()          - Basic fetch with include_links option
+  2. example_with_truncation()- Fetch with word-level truncation (num_words)
+  3. example_with_regex()     - Regex filtering on fetched content
+  4. example_start_offset()   - Fetch starting from specific word offset
+  5. example_binary_document_formats() - Binary document format info (Docling)
+  6. example_pdf_fetch()      - Fetch all files in examples/files/ via Docling
+  7. example_llm_refinement() - LLM refinement pass for semantic cleanup
+  8. example_full_content_fetch() - Full content fetch of real-world URLs
+        """
+    )
+    
+    parser.add_argument(
+        "examples",
+        nargs="?",
+        default=None,
+        metavar="EXAMPLES",
+        help="Comma-separated list or range of example numbers to run, e.g., '1-3,5,7'. "
+             "Omit or leave empty to run all examples. Example: '1,2,3' or '1-4'."
+    )
+    
+    return parser.parse_args()
 
 
 def print_result(result: dict):
@@ -297,24 +378,51 @@ async def example_full_content_fetch():
             print(f"{'─' * 60}")
 
 
-async def main():
+async def main(selected_examples: set[int] | None = None):
+    """Run fetchWebContent examples.
+    
+    Args:
+        selected_examples: Set of example numbers to run. If None or empty, run all.
+    """
+    # All available examples in execution order
+    all_examples = [
+        (1, "example_basic", example_basic),
+        (2, "example_with_truncation", example_with_truncation),
+        (3, "example_with_regex", example_with_regex),
+        (4, "example_start_offset", example_start_offset),
+        (5, "example_binary_document_formats", example_binary_document_formats),
+        (6, "example_pdf_fetch", example_pdf_fetch),
+        (7, "example_llm_refinement", example_llm_refinement),
+        (8, "example_full_content_fetch", example_full_content_fetch),
+    ]
+    
+    # Determine which examples to run
+    if selected_examples:
+        examples_to_run = [(num, name, func) for num, name, func in all_examples if num in selected_examples]
+    else:
+        examples_to_run = all_examples
+    
     print("\n" + "#" * 60)
     print("# fetchWebContent Examples (using real implementation)")
+    if selected_examples:
+        example_nums = sorted(selected_examples)
+        print(f"# Running examples: {example_nums}")
+    else:
+        print("# Running all 8 examples")
     print("#" * 60)
-
-    await example_basic()
-    await example_with_truncation()
-    await example_with_regex()
-    await example_start_offset()
-    await example_binary_document_formats()
-    await example_pdf_fetch()
-    await example_llm_refinement()
-    await example_full_content_fetch()
-
+    
+    for example_num, example_name, example_func in examples_to_run:
+        try:
+            await example_func()
+        except Exception as e:
+            print(f"\nError in {example_name}: {e}")
+    
     print("\n" + "#" * 60)
     print("# Done!")
     print("#" * 60)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    args = parse_args()
+    selected = parse_example_selection(args.examples)
+    asyncio.run(main(selected_examples=selected if selected else None))
