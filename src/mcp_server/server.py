@@ -447,7 +447,7 @@ async def fetch_web_content(
     num_words: int = 1000,
     regex: str = None,
     regex_padding: int = 50,
-    use_llm_refinement: bool = False,
+    use_llm_refinement: Optional[bool] = None,
 ) -> dict:
     """
     Fetch a URL, extract its main content as Markdown, and optionally filter via regex.
@@ -473,13 +473,29 @@ async def fetch_web_content(
         regex: Regex pattern to filter content
         regex_padding: Characters of context around regex matches (default 50)
         use_llm_refinement: When True, apply an optional LLM cleanup pass if
-            content quality is still poor after all structural tiers (default False)
+            content quality is still poor after all structural tiers.
+            When None (default), uses per-extension defaults: enabled for textual
+            types (.html, .md) and disabled for data/binary types (.pdf, .docx,
+            .pptx, .xlsx, .csv, .json, .xml).
 
     Returns:
         Dict with 'url' and 'content' keys, or 'error' on failure.
     """
     file_ext = _get_url_extension(url)
     is_binary = file_ext in _BINARY_DOC_EXTENSIONS
+
+    # Apply per-extension defaults for LLM refinement if not explicitly set
+    if use_llm_refinement is None:
+        textual_extensions = {".html", ".md"}
+        data_extensions = {".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".json", ".xml"}
+
+        if file_ext in textual_extensions:
+            use_llm_refinement = True
+        elif file_ext in data_extensions:
+            use_llm_refinement = False
+        else:
+            # Unknown or no extension - default to True for backward compatibility
+            use_llm_refinement = True
 
     async with httpx.AsyncClient(follow_redirects=True, headers=DEFAULT_HEADERS) as client:
         try:

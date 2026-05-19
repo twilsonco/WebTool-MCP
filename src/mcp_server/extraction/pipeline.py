@@ -316,7 +316,7 @@ class ContentExtractionPipeline:
         url: str,
         include_links: bool = True,
         use_playwright: bool = True,
-        use_llm_refinement: bool = False,
+        use_llm_refinement: Optional[bool] = None,
         llm_manager=None,
     ) -> ExtractionResult:
         """Extract content from an HTML page through the full tier pipeline.
@@ -333,6 +333,7 @@ class ContentExtractionPipeline:
             use_playwright: Attempt Tier-1 dynamic rendering (default ``True``).
             use_llm_refinement: Apply optional LLM cognitive refinement when
                 content quality remains below ``_LLM_TRIGGER_WORD_COUNT``.
+                When None, defaults to True for textual content.
             llm_manager: ``LLMManager`` instance required when
                 ``use_llm_refinement`` is ``True``; ignored otherwise.
 
