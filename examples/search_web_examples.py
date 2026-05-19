@@ -320,102 +320,83 @@ async def example_config_check():
         print(f"  {key}: {status}")
 
 
-async def main(providers: list[str] | None = None):
-    """
-    Run web search examples.
+def parse_example_selection(selection: str | None) -> set[int]:
+    """Parse comma-separated/range example selection like '1-3,5,7' into a set of integers.
 
     Args:
-        providers: Optional list of provider names to test. If None or empty, all available
-                   providers are tested. Valid values: miklium, tavily, brave, google.
+        selection: Comma-separated list with optional ranges, e.g., '1-3,5,7' or '1,2,3'
+
+    Returns:
+        Set of example numbers (1-indexed)
+
+    Examples:
+        '1-3,5,7' -> {1, 2, 3, 5, 7}
+        '1,2,3'   -> {1, 2, 3}
+        '5'       -> {5}
     """
-    # Define which providers map to which example functions
-    provider_examples = {
-        "miklium": [example_miklium],
-        "tavily": [example_tavily],
-        "brave": [example_brave],
-        "google": [example_google],
-    }
+    if not selection:
+        return set()
 
-    # If no providers specified (None or empty list), test all available ones
-    original_providers = providers.copy() if providers else []
-    if not providers:
-        providers = ["miklium", "tavily", "brave", "google"]
+    selected = set()
+    parts = selection.split(',')
 
-    # Validate and filter provider names
-    valid_providers = set(provider_examples.keys())
-    requested_providers = set(providers)
-    invalid_providers = requested_providers - valid_providers
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
 
-    if invalid_providers:
-        print(f"Warning: Unknown provider(s) skipped: {', '.join(sorted(invalid_providers))}")
-        print(f"Valid providers: {', '.join(sorted(valid_providers))}")
+        if '-' in part:
+            range_parts = part.split('-')
+            if len(range_parts) == 2:
+                try:
+                    start, end = int(range_parts[0]), int(range_parts[1])
+                    if start <= end:
+                        selected.update(range(start, end + 1))
+                except ValueError:
+                    pass
+        else:
+            try:
+                selected.add(int(part))
+            except ValueError:
+                pass
 
-    # Filter to only valid and requested providers
-    providers_to_test = [p for p in providers if p in valid_providers]
-
-    if not providers_to_test:
-        print("No valid providers specified. Use --help for usage information.")
-        return
-
-    print("\n" + "#" * 60)
-    print(f"# searchWeb Examples (providers: {', '.join(providers_to_test)})")
-    print("#" * 60)
-
-    # Run examples based on selected providers
-    for provider in providers_to_test:
-        if provider == "miklium":
-            await example_miklium()
-        elif provider == "tavily":
-            await example_tavily()
-        elif provider == "brave":
-            await example_brave()
-        elif provider == "google":
-            await example_google()
-
-    # These examples work with multiple providers, run if any relevant provider is selected
-    has_tavily_or_brave = "tavily" in providers_to_test or "brave" in providers_to_test
-    has_brave = "brave" in providers_to_test
-    has_google = "google" in providers_to_test
-
-    if has_tavily_or_brave:
-        await example_date_filtering()
-
-    if has_brave:
-        await example_date_filtering_options()
-        await example_offset_pagination()
-
-    if has_google:
-        await example_google_ignores_days()
-
-    # Error handling always relevant
-    await example_error_handling()
-    await example_config_check()
-
-    print("\n" + "#" * 60)
-    print("# Done!")
-    print("#" * 60)
+    return selected
 
 
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Web search examples demonstrating various providers and features.",
+        description="searchWeb examples demonstrating various providers and features.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                  Run all provider examples
-  %(prog)s tavily           Run only Tavily examples
-  %(prog)s google brave     Run Google and Brave examples
-  %(prog)s miklium          Run Miklium (free, no API key) examples
+  %(prog)s                      Run all 10 examples
+  %(prog)s 1                    Run only example 1 (miklium)
+  %(prog)s 1-3                  Run examples 1, 2, and 3
+  %(prog)s 1,3,5                Run examples 1, 3, and 5
+  %(prog)s 2-4,7                Run examples 2, 3, 4, and 7
+
+Example functions (numbered for selection):
+  1. example_miklium()              - Miklium search (no API key required)
+  2. example_tavily()               - Tavily search
+  3. example_brave()                - Brave search
+  4. example_google()               - Google Custom Search
+  5. example_date_filtering()       - Date filtering with days parameter
+  6. example_date_filtering_options() - All Brave freshness period options
+  7. example_offset_pagination()    - Offset pagination (brave/google)
+  8. example_google_ignores_days()  - Google silently ignores days parameter
+  9. example_error_handling()       - Error handling (unknown provider, empty query)
+  10. example_config_check()        - Provider configuration status
         """
     )
 
     parser.add_argument(
-        "providers",
-        nargs="*",
+        "examples",
+        nargs="?",
         default=None,
-        metavar="PROVIDER",
-        help="Provider names to test: miklium, tavily, brave, google (default: all). Unknown providers are skipped with a warning."
+        metavar="EXAMPLES",
+        help="Comma-separated list or range of example numbers to run, e.g., '1-3,5,7'. "
+             "Omit or leave empty to run all examples. Example: '1,2,3' or '1-4'."
     )
 
     parser.add_argument(
@@ -427,7 +408,54 @@ Examples:
     return parser.parse_args()
 
 
+async def main(selected_examples: set[int] | None = None):
+    """Run searchWeb examples.
+
+    Args:
+        selected_examples: Set of example numbers to run. If None or empty, run all.
+    """
+    # All available examples in execution order
+    all_examples = [
+        (1, "example_miklium", example_miklium),
+        (2, "example_tavily", example_tavily),
+        (3, "example_brave", example_brave),
+        (4, "example_google", example_google),
+        (5, "example_date_filtering", example_date_filtering),
+        (6, "example_date_filtering_options", example_date_filtering_options),
+        (7, "example_offset_pagination", example_offset_pagination),
+        (8, "example_google_ignores_days", example_google_ignores_days),
+        (9, "example_error_handling", example_error_handling),
+        (10, "example_config_check", example_config_check),
+    ]
+
+    # Determine which examples to run
+    if selected_examples:
+        examples_to_run = [(num, name, func) for num, name, func in all_examples if num in selected_examples]
+    else:
+        examples_to_run = all_examples
+
+    print("\n" + "#" * 60)
+    print("# searchWeb Examples (using real implementation)")
+    if selected_examples:
+        example_nums = sorted(selected_examples)
+        print(f"# Running examples: {example_nums}")
+    else:
+        print("# Running all 10 examples")
+    print("#" * 60)
+
+    for example_num, example_name, example_func in examples_to_run:
+        try:
+            await example_func()
+        except Exception as e:
+            print(f"\nError in {example_name}: {e}")
+
+    print("\n" + "#" * 60)
+    print("# Done!")
+    print("#" * 60)
+
+
 if __name__ == "__main__":
     args = parse_args()
     DRY_RUN = args.dry_run
-    asyncio.run(main(providers=args.providers))
+    selected = parse_example_selection(args.examples)
+    asyncio.run(main(selected_examples=selected if selected else None))

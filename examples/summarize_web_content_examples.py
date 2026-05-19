@@ -10,6 +10,7 @@ The atomic API summarizes one URL per call:
 
 Returns a dict with 'url' and 'summary', or 'error' on failure.
 """
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -163,8 +164,102 @@ async def example_multi_provider_failover():
         print(f"Error initializing LLM manager: {e}")
 
 
-async def main():
+def parse_example_selection(selection: str | None) -> set[int]:
+    """Parse comma-separated/range example selection like '1-3,5,7' into a set of integers.
+
+    Args:
+        selection: Comma-separated list with optional ranges, e.g., '1-3,5,7' or '1,2,3'
+
+    Returns:
+        Set of example numbers (1-indexed)
+
+    Examples:
+        '1-3,5,7' -> {1, 2, 3, 5, 7}
+        '1,2,3'   -> {1, 2, 3}
+        '5'       -> {5}
+    """
+    if not selection:
+        return set()
+
+    selected = set()
+    parts = selection.split(',')
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        if '-' in part:
+            range_parts = part.split('-')
+            if len(range_parts) == 2:
+                try:
+                    start, end = int(range_parts[0]), int(range_parts[1])
+                    if start <= end:
+                        selected.update(range(start, end + 1))
+                except ValueError:
+                    pass
+        else:
+            try:
+                selected.add(int(part))
+            except ValueError:
+                pass
+
+    return selected
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="summarizeWebContent examples demonstrating various features and use cases.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                      Run all 4 examples
+  %(prog)s 1                    Run only example 1 (single URL summary)
+  %(prog)s 1-3                  Run examples 1, 2, and 3
+  %(prog)s 1,3                  Run examples 1 and 3
+
+Example functions (numbered for selection):
+  1. example_single_url()           - Summarize a single URL with default prompt
+  2. example_custom_summary_prompt() - Custom prompt for technical focus
+  3. example_config_check()         - Check LLM configuration status
+  4. example_multi_provider_failover() - Multi-provider LLM failover demonstration
+        """
+    )
+
+    parser.add_argument(
+        "examples",
+        nargs="?",
+        default=None,
+        metavar="EXAMPLES",
+        help="Comma-separated list or range of example numbers to run, e.g., '1-3,5,7'. "
+             "Omit or leave empty to run all examples. Example: '1,2,3' or '1-4'."
+    )
+
+    return parser.parse_args()
+
+
+async def main(selected_examples: set[int] | None = None):
+    """Run summarizeWebContent examples.
+
+    Args:
+        selected_examples: Set of example numbers to run. If None or empty, run all.
+    """
     from src.mcp_server.llm import LLMManager
+
+    # All available examples in execution order
+    all_examples = [
+        (1, "example_single_url", example_single_url),
+        (2, "example_custom_summary_prompt", example_custom_summary_prompt),
+        (3, "example_config_check", example_config_check),
+        (4, "example_multi_provider_failover", example_multi_provider_failover),
+    ]
+
+    # Determine which examples to run
+    if selected_examples:
+        examples_to_run = [(num, name, func) for num, name, func in all_examples if num in selected_examples]
+    else:
+        examples_to_run = all_examples
 
     print("\n" + "#" * 60)
     print("# summarizeWebContent Examples (using real implementation)")
@@ -176,15 +271,18 @@ async def main():
             print(f"# Model: {p.config.model}")
     except Exception:
         print("# LLM Provider: Not configured")
+    if selected_examples:
+        example_nums = sorted(selected_examples)
+        print(f"# Running examples: {example_nums}")
+    else:
+        print("# Running all 4 examples")
     print("#" * 60)
 
-    await example_config_check()
-    # Uncomment to test multi-provider failover:
-    # await example_multi_provider_failover()
-    await example_single_url()
-
-    # This takes longer due to LLM call - uncomment as needed:
-    # await example_custom_summary_prompt()
+    for example_num, example_name, example_func in examples_to_run:
+        try:
+            await example_func()
+        except Exception as e:
+            print(f"\nError in {example_name}: {e}")
 
     print("\n" + "#" * 60)
     print("# Done!")
@@ -192,4 +290,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    args = parse_args()
+    selected = parse_example_selection(args.examples)
+    asyncio.run(main(selected_examples=selected if selected else None))

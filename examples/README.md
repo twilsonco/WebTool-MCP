@@ -47,9 +47,12 @@ Direct-call examples importing the actual `fetchWebContent` implementation from 
 5. **Binary Document Formats** - Lists extensions routed directly to Docling (PDF, DOCX, PPTX, XLSX, images, CSV, JSON, XML)
 6. **PDF Fetch** - Fetches a real PDF via the binary-document path (Docling)
 7. **LLM Refinement** - `use_llm_refinement=True` applies an optional LLM semantic cleanup pass (requires `LLM_PROVIDER_1_*` in `.env`)
+8. **Full Content Fetch** - Fetches real-world URLs with full content extraction
 
 ```bash
-uv run python examples/fetch_web_content_examples.py
+uv run python examples/fetch_web_content_examples.py          # run all examples
+uv run python examples/fetch_web_content_examples.py 1        # example 1 only
+uv run python examples/fetch_web_content_examples.py 1-3,5    # examples 1, 2, 3, and 5
 ```
 
 **Extraction Pipeline:**
@@ -57,7 +60,7 @@ uv run python examples/fetch_web_content_examples.py
 
 ### search_web_examples.py
 
-Direct-call examples importing the actual `searchWeb` implementation. Each call performs a single search with one provider. Supports a `--dry-run` flag to print search specs without making API calls, and positional provider arguments (e.g., `tavily`, `brave`, `google`).
+Direct-call examples importing the actual `searchWeb` implementation. Each call performs a single search with one provider. Supports a `--dry-run` flag to print search specs without making API calls.
 
 1. **Miklium Search** - Default, free provider (no API key required)
 2. **Tavily Search** - Requires `TAVILY_API_KEY`
@@ -71,8 +74,10 @@ Direct-call examples importing the actual `searchWeb` implementation. Each call 
 10. **Config Check** - Prints which search API keys are SET vs NOT SET
 
 ```bash
-uv run python examples/search_web_examples.py              # all providers
-uv run python examples/search_web_examples.py tavily       # Tavily only
+uv run python examples/search_web_examples.py              # run all 10 examples
+uv run python examples/search_web_examples.py 1            # example 1 only (miklium, free)
+uv run python examples/search_web_examples.py 1-4          # examples 1–4 (all providers)
+uv run python examples/search_web_examples.py 1,9,10       # examples 1, 9, and 10
 uv run python examples/search_web_examples.py --dry-run    # print specs, no API calls
 ```
 
@@ -83,10 +88,11 @@ Direct-call examples importing the actual `summarizeWebContent` implementation. 
 1. **Single URL** - Summarize one URL with `max_num_words=500`
 2. **Custom Summary Prompt** - Custom prompt guiding what the LLM extracts
 3. **LLM Config Check** - Initializes `LLMManager` and prints provider info (name, base_url, model)
-4. **Multi-Provider Failover** - Demonstrates multi-provider LLM failover (commented out in `main()` by default)
+4. **Multi-Provider Failover** - Demonstrates multi-provider LLM failover
 
 ```bash
-uv run python examples/summarize_web_content_examples.py
+uv run python examples/summarize_web_content_examples.py       # run all 4 examples
+uv run python examples/summarize_web_content_examples.py 3     # example 3 only (config check)
+uv run python examples/summarize_web_content_examples.py 1,3   # examples 1 and 3
+uv run python examples/summarize_web_content_examples.py 1-3   # examples 1, 2, and 3
 ```
-
-Note: Examples 2-4 and 6 are commented out in `main()` by default since they make multiple LLM calls. Uncomment them as needed.
