@@ -165,7 +165,7 @@ async def example_pdf_fetch():
     print("=" * 60)
 
     # Real sample PDF from GitHub (replace with any accessible PDF URL to test)
-    pdf_url = "https://raw.githubusercontent.com/twilsonco/WebTool-MCP/main/examples/file-sample_150kB.pdf"
+    pdf_url = "https://raw.githubusercontent.com/twilsonco/WebTool-MCP/main/examples/files/file-sample_150kB.pdf"
 
     print(f"\nFetching PDF: {pdf_url}")
     result = await real_fetch_web_content(pdf_url, num_words=20000, include_links=True)
