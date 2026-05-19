@@ -1,0 +1,47 @@
+﻿[Name],,,
+Family Budget,,,
+[Month],,,
+[Year],,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+Note: Cash flow table is automatically calculated based on your entries in the Monthly Income and Monthly Expense tables below,,,
+Cash Flow,Projected,Actual,Variance
+Total Income,"5,700","5,500",-200
+Total Expense,"3,603","3,655",-52
+Total Cash,"2,097","1,845",-252
+,,,
+Monthly Income,Projected,Actual,Variance
+Income 1,"4,000","4,000",0
+Income 2,"1,400","1,500",100
+Other Income,300,0,-300
+Total Income,"5,700","5,500",-200
+,,,
+Monthly Expense,Projected,Actual,Variance
+Housing,"1,500","1,500",0
+Groceries,250,280,-30
+Telephone,38,38,0
+Electric / Gas,65,78,-13
+Water / Sewer / Trash,25,21,4
+Cable TV,75,83,-8
+Internet,60,60,0
+Maintenance / Repairs,0,60,-60
+Childcare,180,150,30
+Tuition,250,250,0
+Pets,75,80,-5
+Transportation,280,260,20
+Personal Care,75,65,10
+Insurance,255,255,0
+Credit Cards,100,100,0
+Loans,0,0,0
+Taxes,0,0,0
+Gifts / Charity,150,150,0
+Savings,225,225,0
+Other,0,0,0
+Total,"3,603","3,655",-52
