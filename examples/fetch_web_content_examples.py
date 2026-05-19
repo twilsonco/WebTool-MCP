@@ -155,31 +155,78 @@ async def example_binary_document_formats():
 
 
 async def example_pdf_fetch():
-    """Example 6: Fetch and parse a real PDF via Docling.
+    """Example 6: Fetch and parse all files in examples/files/ via Docling.
 
-    Fetches an actual PDF document; the binary-document path routes it
-    directly to Docling for layout-aware parsing.
+    Iterates over all files in the examples/files/ directory, fetching each
+    from GitHub raw URL. Runs real_fetch_web_content() twice per file:
+    - Once with default settings (no LLM refinement)
+    - Once with use_llm_refinement=True for content that supports it.
     """
     print("\n" + "=" * 60)
-    print("EXAMPLE 6: PDF Fetch (Docling binary path)")
+    print("EXAMPLE 6: File Fetch (Docling binary path)")
     print("=" * 60)
 
-    # Real sample PDF from GitHub (replace with any accessible PDF URL to test)
-    pdf_url = "https://raw.githubusercontent.com/twilsonco/WebTool-MCP/main/examples/files/file-sample_150kB.pdf"
+    # Files available in examples/files/
+    files_dir = project_root / "examples" / "files"
+    filenames = [
+        "Banana Split Decoded.pdf",
+        "creative resume.doc",
+        "creative resume.docx",
+        "Family Budget.csv",
+        "Family Budget.xls",
+        "Family Budget.xlsx",
+        "Family Budget.xml",
+        "file-sample_150kB.pdf",
+        "Presentation.ppt",
+        "Presentation.pptx",
+    ]
 
-    print(f"\nFetching PDF: {pdf_url}")
-    result = await real_fetch_web_content(pdf_url, num_words=20000, include_links=True)
+    for filename in filenames:
+        # GitHub raw URL for each file
+        url = f"https://raw.githubusercontent.com/twilsonco/WebTool-MCP/main/examples/files/{filename}"
 
-    if "error" in result:
-        print(f"\n  Error: {result['error']}")
-    else:
-        print(f"\n[{result['url']}]")
-        print("-" * 40)
-        content = result.get("content", "")
-        if content:
-            print(content)
+        # Fetch without LLM refinement
+        print(f"\n{'=' * 60}")
+        print(f"FILE: {filename}")
+        print(f"LLM Refinement: DISABLED")
+        print(f"{'=' * 60}")
+        result = await real_fetch_web_content(url, num_words=20000, include_links=True)
+
+        if "error" in result:
+            print(f"\n  Error: {result['error']}")
         else:
-            print("No content extracted")
+            content = result.get("content", "")
+            if content:
+                print(f"\n[{result['url']}]")
+                print("-" * 40)
+                preview = content[:1000] if len(content) > 1000 else content
+                print(preview + ("..." if len(content) > 1000 else ""))
+            else:
+                print("No content extracted")
+
+        # Fetch with LLM refinement enabled
+        print(f"\n{'=' * 60}")
+        print(f"FILE: {filename}")
+        print(f"LLM Refinement: ENABLED")
+        print(f"{'=' * 60}")
+        result_llm = await real_fetch_web_content(
+            url, num_words=20000, include_links=True, use_llm_refinement=True
+        )
+
+        if "error" in result_llm:
+            print(f"\n  Error: {result_llm['error']}")
+        else:
+            content = result_llm.get("content", "")
+            if content:
+                print(f"\n[{result_llm['url']}]")
+                print("-" * 40)
+                preview = content[:1000] if len(content) > 1000 else content
+                print(preview + ("..." if len(content) > 1000 else ""))
+            else:
+                print("No content extracted")
+
+        # Pause to avoid GitHub rate limiting
+        await asyncio.sleep(3)
 
 
 async def example_llm_refinement():
