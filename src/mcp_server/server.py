@@ -642,7 +642,7 @@ async def api_fetch_web_content(
     "/summarizeWebContent",
     operation_id="summarizeWebContent",
     tags=["mcp-tool"],
-    summary="Fetch AI-summarized URL content via configured LLM",
+    summary="Fetch AI-summarized URL content via configured LLM. This takes preference over `fetchWebContent` in general, as the summary prompt can be used to guide the summary.",
     dependencies=[Depends(_require_auth)],
 )
 async def api_summarize_web_content(
