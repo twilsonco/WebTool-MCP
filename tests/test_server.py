@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 # Import from server module
 from src.mcp_server.server import (
-    fetch_web_content, search_web, summarize_web_content, _call_llm,
+    fetch_web_content, summarize_text, search_web, _call_llm,
     _get_configured_providers, _brave_freshness,
 )
 from src.mcp_server.extraction.pipeline import ExtractionResult
@@ -1004,78 +1004,67 @@ class TestGetConfiguredProviders:
             assert providers == ["miklium", "tavily"]
 
 
-class TestWebSummarize:
+class TestSummarizeText:
     @pytest.mark.asyncio
-    async def test_summarize_single_url(self):
-        fetch_result = {"url": "https://example.com", "content": "This is the actual content from the webpage with details."}
+    async def test_summarize_text_basic(self):
+        """Test summarize_text returns summary on success."""
+        with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Key points: summary here.")):
+            result = await summarize_text("Some content to summarize")
 
-        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
-            with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="## Summary\n\nKey points extracted.")):
-                result = await summarize_web_content("https://example.com")
-
-                assert "url" in result
-                assert result["url"] == "https://example.com"
-                if "summary" in result:
-                    assert len(result["summary"]) > 0
+        assert "summary" in result
+        assert len(result["summary"]) > 0
 
     @pytest.mark.asyncio
-    async def test_summarize_custom_prompt(self):
-        fetch_result = {"url": "https://example.com", "content": "Content for custom analysis."}
+    async def test_summarize_text_custom_prompt(self):
+        """Test summarize_text uses custom prompt."""
+        def check_prompt(prompt, system_prompt=None):
+            assert "technical" in system_prompt.lower() or "focus on technical details" in system_prompt.lower()
+            return "Custom summary"
 
-        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
-            with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Custom summary")):
-                result = await summarize_web_content(
-                    "https://example.com",
-                    summary_prompt="Focus on technical specifications only."
-                )
+        with patch("src.mcp_server.server._call_llm", AsyncMock(side_effect=check_prompt)):
+            result = await summarize_text("Content", summary_prompt="Focus on technical details")
 
-                assert "url" in result
-                # Should still use the custom prompt or default
+        assert "summary" in result
 
     @pytest.mark.asyncio
-    async def test_summarize_fetch_error(self):
-        fetch_result = {"url": "https://error.com", "error": "Error: Failed to connect to server"}
-
-        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
-            result = await summarize_web_content("https://error.com")
-
-            assert "url" in result
-            # Error content should be captured with error key
-            assert "error" in result
-
-    @pytest.mark.asyncio
-    async def test_summarize_llm_error_handling(self):
-        fetch_result = {"url": "https://example.com", "content": "Normal content here."}
-
-        async def mock_llm_error(prompt, system_prompt=None):
+    async def test_summarize_text_llm_error(self):
+        """Test summarize_text handles LLM errors."""
+        def raise_error(prompt, system_prompt=None):
             raise RuntimeError("LLM API Error: 503 Service Unavailable")
 
-        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
-            with patch("src.mcp_server.server._call_llm", side_effect=mock_llm_error):
-                result = await summarize_web_content("https://example.com")
+        with patch("src.mcp_server.server._call_llm", AsyncMock(side_effect=raise_error)):
+            result = await summarize_text("Content")
 
-                assert "error" in result
-
-    @pytest.mark.asyncio
-    async def test_summarize_max_words(self):
-        fetch_result = {"url": "https://example.com", "content": "x " * 1500}
-
-        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
-            with patch("src.mcp_server.server._call_llm", AsyncMock(return_value="Summary")):
-                result = await summarize_web_content("https://example.com", max_num_words=100)
-
-                assert "url" in result
-
-    @pytest.mark.asyncio
-    async def test_summarize_no_matches_content(self):
-        fetch_result = {"url": "https://example.com", "content": "No matches found for regex."}
-
-        with patch("src.mcp_server.server.fetch_web_content", AsyncMock(return_value=fetch_result)):
-            result = await summarize_web_content("https://example.com")
-
-        assert "url" in result
-        # "No matches" content should be captured as error
         assert "error" in result
+
+
+class TestFetchWebContentSummarize:
+    @pytest.mark.asyncio
+    async def test_fetch_web_content_summarize_true(self):
+        """Test fetch_web_content returns summary when summarize=True."""
+        def check_summarize(text, summary_prompt="", max_words=800):
+            assert "content to summarize" in text.lower()
+            return {"summary": "Summarized output"}
+
+        with patch("src.mcp_server.server._extraction_pipeline.extract_from_html", new=AsyncMock(return_value=MagicMock(content="Content to summarize from the page"))):
+            with patch("src.mcp_server.server.summarize_text", AsyncMock(side_effect=check_summarize)):
+                result = await fetch_web_content(
+                    url="https://example.com",
+                    summarize=True,
+                    summary_prompt="Focus on key points"
+                )
+
+        assert "summary" in result
+        assert "url" in result
+
+    @pytest.mark.asyncio
+    async def test_fetch_web_content_summarize_false(self):
+        """Test fetch_web_content returns content when summarize=False (default)."""
+        with patch("src.mcp_server.server.ContentExtractionPipeline.extract_from_html", new=AsyncMock(return_value=MagicMock(content="Raw markdown content"))):
+            result = await fetch_web_content(url="https://example.com", summarize=False)
+
+        assert "content" in result
+        assert "summary" not in result
 
 
 class TestCallLLM:
@@ -1700,14 +1689,13 @@ class TestHTTPEndpoints:
         tool_names = [t.name for t in fastapi_mcp.tools]
         assert "searchWeb" in tool_names
         assert "fetchWebContent" in tool_names
-        assert "summarizeWebContent" in tool_names
+        # summarizeWebContent is now removed - only 2 tools remain
 
     def test_mcp_tools_exclude_health(self):
         from mcp_server.server import fastapi_mcp
         tool_names = [t.name for t in fastapi_mcp.tools]
         assert "health__get" not in tool_names
-        # Only 3 tools (searchWeb, fetchWebContent, summarizeWebContent)
-        assert len(tool_names) == 3
+        # Only 2 tools (searchWeb, fetchWebContent)
 
     def test_mcp_tool_schemas(self):
         from mcp_server.server import fastapi_mcp
@@ -1716,12 +1704,11 @@ class TestHTTPEndpoints:
         search_props = tools_by_name["searchWeb"].inputSchema["properties"]
         assert "query" in search_props
         assert "provider" in search_props
-        # fetchWebContent has url as required
+        # fetchWebContent has url as required, plus summarize and summary_prompt params
         fetch_props = tools_by_name["fetchWebContent"].inputSchema["properties"]
         assert "url" in fetch_props
-        # summarizeWebContent has url as required
-        summarize_props = tools_by_name["summarizeWebContent"].inputSchema["properties"]
-        assert "url" in summarize_props
+        assert "summarize" in fetch_props
+        assert "summary_prompt" in fetch_props
 
     def test_auth_dependency_exists(self):
         from mcp_server.server import _require_auth, api_keys
@@ -2155,18 +2142,6 @@ class TestRouteWrappers:
             result = await api_fetch_web_content(url="https://example.com")
         assert result == expected
         mock_fn.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_api_summarize_web_content_delegates(self):
-        """api_summarize_web_content delegates to summarize_web_content."""
-        from src.mcp_server.server import api_summarize_web_content
-
-        expected = {"url": "https://example.com", "summary": "A summary."}
-        with patch("src.mcp_server.server.summarize_web_content", new=AsyncMock(return_value=expected)) as mock_fn:
-            result = await api_summarize_web_content(url="https://example.com")
-        assert result == expected
-        mock_fn.assert_called_once()
-
 
 # ---------------------------------------------------------------------------
 # async_main entry point

@@ -6,18 +6,17 @@ This directory contains example scripts demonstrating how to interact with the W
 
 ### run_examples.py
 
-Entry-point launcher that runs example scripts by tool name. Supports `fetch`, `search`, `summarize`, or `all` (runs all three in sequence with prompts between each).
+Entry-point launcher that runs example scripts by tool name. Supports `fetch`, `search`, or `all` (runs all in sequence with prompts between each).
 
 ```bash
-uv run python examples/run_examples.py fetch      # fetchWebContent demos only
+uv run python examples/run_examples.py fetch      # fetchWebContent demos only (includes summarize via summarize=true)
 uv run python examples/run_examples.py search     # searchWeb demos only
-uv run python examples/run_examples.py summarize  # summarizeWebContent demos only
 uv run python examples/run_examples.py all        # everything in sequence
 ```
 
 ### test_mcp.py
 
-End-to-end MCP client test that connects via the streamable-http transport and calls all three tools through the MCP protocol (JSON-RPC). Tests `searchWeb` with each provider (miklium, tavily, brave, google), `fetchWebContent`, and `summarizeWebContent`.
+End-to-end MCP client test that connects via the streamable-http transport and calls all tools through the MCP protocol (JSON-RPC). Tests `searchWeb` with each provider (miklium, tavily, brave, google), and `fetchWebContent` (normal fetch and summarize modes).
 
 **How to Run:**
 
@@ -34,7 +33,7 @@ End-to-end MCP client test that connects via the streamable-http transport and c
 **Requirements:**
 - Server must be running on `http://localhost:8000` (or set `MCP_SERVER_PORT` env var)
 - Internet connection for making web requests
-- For `summarizeWebContent`, configure LLM providers in `.env` (optional - search and fetch work without it)
+- For summarize mode (`fetchWebContent` with summarize=true), configure LLM providers in `.env` (optional - search and normal fetch work without it)
 
 ### fetch_web_content_examples.py
 
@@ -81,18 +80,6 @@ uv run python examples/search_web_examples.py 1,9,10       # examples 1, 9, and 
 uv run python examples/search_web_examples.py --dry-run    # print specs, no API calls
 ```
 
-### summarize_web_content_examples.py
+### summarize_web_content_examples.py (removed)
 
-Direct-call examples importing the actual `summarizeWebContent` implementation. Each call summarizes a single URL. Requires LLM provider configuration.
-
-1. **Single URL** - Summarize one URL with `max_num_words=500`
-2. **Custom Summary Prompt** - Custom prompt guiding what the LLM extracts
-3. **LLM Config Check** - Initializes `LLMManager` and prints provider info (name, base_url, model)
-4. **Multi-Provider Failover** - Demonstrates multi-provider LLM failover
-
-```bash
-uv run python examples/summarize_web_content_examples.py       # run all 4 examples
-uv run python examples/summarize_web_content_examples.py 3     # example 3 only (config check)
-uv run python examples/summarize_web_content_examples.py 1,3   # examples 1 and 3
-uv run python examples/summarize_web_content_examples.py 1-3   # examples 1, 2, and 3
-```
+This file has been removed. Summarization is now part of `fetchWebContent` — use it with `summarize=true` and optional `summary_prompt`.

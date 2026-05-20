@@ -18,7 +18,7 @@ The server is built with:
 ## Tools/Functions
 
 ### fetchWebContent
-Fetch URLs and convert content to Markdown format with optional filtering and pagination.
+Fetch URLs and convert content to Markdown format with optional filtering, pagination, and LLM-powered summarization.
 
 Uses a **multi-tiered extraction pipeline** to maximise content quality:
 1. **Playwright** — renders JavaScript/SPA pages in a headless browser
@@ -32,6 +32,7 @@ Other capabilities:
 - Regex-based content filtering with configurable padding
 - Word-level truncation and pagination via `start_word` and `num_words`
 - Optional extraction of links from fetched pages
+- **Summarization** — set `summarize=true` to get an LLM-generated summary instead of raw content
 
 ### searchWeb
 Multi-provider web search with support for:
@@ -43,18 +44,11 @@ Multi-provider web search with support for:
 
 Features include automatic failover between providers and date filtering (results from the last N days).
 
-### summarizeWebContent
-Fetch a URL and generate an AI-powered summary using a configured LLM endpoint. This way you get the most relevant information without overwhelming the model with too much content.
-
-- Summarization via OpenAI-compatible API
-- Configurable prompts for guiding the summary focus
-- Automatic truncation of long content before processing
-
 ## Prerequisites
 
 - Python 3.10 or higher
 - For **searchWeb**: Works out-of-the-box with Miklium (no API key required). Optional: add TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY + GOOGLE_SEARCH_ENGINE_ID for additional providers
-- For **summarizeWebContent**: An OpenAI-compatible endpoint (Ollama, OpenWebUI, etc.)
+- For **fetchWebContent with summarize=true**: An OpenAI-compatible endpoint (Ollama, OpenWebUI, etc.)
 
 ## Installation
 
@@ -80,7 +74,7 @@ cp .env.example .env
 
 WebTool uses environment variables for configuration. Copy `.env.example` to `.env` and set the appropriate values.
 
-### LLM Configuration (for summarizeWebContent)
+### LLM Configuration (for fetchWebContent summarize)
 
 WebTool supports multiple LLM providers with automatic failover. Providers are tried in order (1, 2, 3...) - if the primary fails, the next provider is used automatically.
 
@@ -152,14 +146,11 @@ The project includes example scripts demonstrating each tool:
 # Run all examples
 uv run python examples/run_examples.py all
 
-# Run only fetchWebContent examples
+# Run only fetchWebContent examples (includes summarize via summarize=true)
 uv run python examples/run_examples.py fetch
 
 # Run only searchWeb examples
 uv run python examples/run_examples.py search
-
-# Run only summarizeWebContent examples
-uv run python examples/run_examples.py summarize
 ```
 
 ### Tool Reference
@@ -174,12 +165,14 @@ Fetch a URL and convert to Markdown.
 | `url` | str | Required | URL to fetch |
 | `include_links` | bool | `False` | When True, preserve anchor tag hrefs in output; when False (default), unwrap anchor tags keeping only text |
 | `start_word` | int | `0` | Starting word index for pagination |
-| `num_words` | int | `1000` | Maximum words to return |
+| `num_words` | int | `1000` | Maximum words to return; when summarize=true, this is the max summary word count (passed as LLM constraint) |
 | `regex` | str | `None` | Regex pattern to filter content |
 | `regex_padding` | int | `50` | Characters of context around regex matches |
 | `use_llm_refinement` | bool | `False` | When True, apply an LLM cleanup pass on the extracted Markdown (requires LLM provider configuration) |
+| `summarize` | bool | `False` | When true, return an LLM-generated summary instead of raw content (requires LLM provider configuration) |
+| `summary_prompt` | str | (empty) | Custom prompt to guide the summarization (optional, uses built-in default if empty) |
 
-**Returns:** `{"url": "...", "content": "markdown"}` or `{"url": "...", "error": "..."}`
+**Returns:** `{"url": "...", "content": "markdown"}` (normal) or `{"url": "...", "summary": "..."}` when summarize=true; also `{"url": "...", "error": "..."}` on failure
 
 **Example (Python):**
 ```python
@@ -274,64 +267,6 @@ curl -X POST http://localhost:8000/mcp \
         "query": "Python async programming",
         "provider": "tavily",
         "num_results": 5
-      }
-    }
-  }'
-```
-
-#### summarizeWebContent
-
-Fetch a URL and generate an LLM-powered summary.
-
-**Parameters:**
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `url` | str | Required | URL to summarize |
-| `summary_prompt` | str | (built-in) | Custom prompt for summarization |
-| `max_num_words` | int | `800` | Max words before truncation |
-
-**Returns:**
-```python
-{
-    "url": "https://example.com",
-    "summary": "Summarized content..."
-}
-```
-Or on error:
-```python
-{
-    "url": "https://example.com",
-    "error": "Error description..."
-}
-```
-
-**Example (Python):**
-```python
-result = await summarizeWebContent(
-    url="https://docs.python.org/3/library/asyncio.html",
-    summary_prompt="Focus on async/await patterns and best practices.",
-    max_num_words=1000
-)
-```
-
-**Example (curl — HTTP transport):**
-
-After initializing a session (see fetchWebContent example above), call the tool:
-```bash
-curl -X POST http://localhost:8000/mcp \
-  -H "Accept: application/json, text/event-stream" \
-  -H "Content-Type: application/json" \
-  -H "mcp-session-id: <session-id>" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {
-      "name": "summarizeWebContent",
-      "arguments": {
-        "url": "https://docs.python.org/3/library/asyncio.html",
-        "summary_prompt": "Focus on async/await patterns and best practices.",
-        "max_num_words": 1000
       }
     }
   }'

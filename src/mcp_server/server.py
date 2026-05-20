@@ -2,11 +2,11 @@ import os
 import re
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional
+from typing import Annotated, Optional
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Body
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi_mcp import FastApiMCP
@@ -397,48 +397,30 @@ Format output as clean Markdown with headers where appropriate.
 """
 
 
-async def summarize_web_content(
-    url: str,
+async def summarize_text(
+    text: str,
     summary_prompt: str = "",
-    max_num_words: int = 800
+    max_words: int = 800
 ) -> dict:
     """
-    Fetch a URL and summarize content via configured LLM.
+    Summarize raw text content via configured LLM.
 
     Args:
-        url: The URL to fetch and summarize (required)
+        text: The raw text to summarize (required)
         summary_prompt: Custom prompt for the summarization step (optional, uses built-in default)
-        max_num_words: Max words before truncation (default 800)
+        max_words: Maximum words in output summary (default 800)
 
     Returns:
-        Dict with 'url' and 'summary', or 'error' on fetch/LLM failure.
+        Dict with 'summary', or 'error' on LLM failure.
     """
-    # Fetch full content without truncation for summarization
-    fetch_result = await fetch_web_content(
-        url,
-        num_words=1000000,  # Fetch essentially all content; limit enforced by LLM prompt
-        regex=None  # No filtering; full content for summarization
-    )
-
-    system_prompt = DEFAULT_SUMMARY_PROMPT + (f"\n\n**More importantly: {summary_prompt}**" if summary_prompt else "") + f"\n**You produce summaries using no more than {max_num_words} words.**"
-
-    # Check for fetch errors
-    content = fetch_result.get("content", "")
-    if "error" in fetch_result or not content:
-        error_text = fetch_result.get("error", "") if "error" in fetch_result else content
-        return {"url": url, "error": error_text[:100] if len(error_text) > 100 else error_text}
-
-    # Check for "No matches" content (from regex filtering, though we don't pass regex here)
-    if "No matches" in content:
-        return {"url": url, "error": content[:100]}
+    system_prompt = DEFAULT_SUMMARY_PROMPT + (f"\n\n**More importantly: {summary_prompt}**" if summary_prompt else "") + f"\n**You produce summaries using no more than {max_words} words.**"
 
     try:
-        # Pass word limit to LLM prompt; model enforces the constraint
-        user_prompt = f"Summarize the following web content in no more than {max_num_words} words:\n\n{content}"
+        user_prompt = f"Summarize the following content in no more than {max_words} words:\n\n{text}"
         summary_text = await _call_llm(user_prompt, system_prompt)
-        return {"url": url, "summary": summary_text.strip()}
+        return {"summary": summary_text.strip()}
     except RuntimeError as e:
-        return {"url": url, "error": str(e)}
+        return {"error": str(e)}
 
 
 async def fetch_web_content(
@@ -449,6 +431,8 @@ async def fetch_web_content(
     regex: str = None,
     regex_padding: int = 50,
     use_llm_refinement: Optional[bool] = None,
+    summarize: bool = False,
+    summary_prompt: str = "",
 ) -> dict:
     """
     Fetch a URL, extract its main content as Markdown, and optionally filter via regex.
@@ -575,6 +559,17 @@ async def fetch_web_content(
                 else:
                     content = "No matches found for regex."
 
+            # If summarize is requested, use LLM to summarize instead of returning raw content
+            if summarize:
+                # Fetch unlimited content for summarization; num_words becomes the summary word cap
+                words = content.split()
+                full_content = " ".join(words)  # No truncation for summarize mode
+
+                summary_result = await summarize_text(full_content, summary_prompt, num_words)
+                if "error" in summary_result:
+                    return {"url": url, "error": summary_result["error"]}
+                return {"url": url, "summary": summary_result["summary"]}
+
             # Word-based pagination / truncation
             words = content.split()
             truncated = " ".join(words[start_word: start_word + num_words])
@@ -615,17 +610,19 @@ async def api_search_web(
     "/fetchWebContent",
     operation_id="fetchWebContent",
     tags=["mcp-tool"],
-    summary="Fetch, convert to markdown, and/or filter via regex",
+    summary="Fetch a URL, extract content as Markdown, and optionally summarize via LLM",
     dependencies=[Depends(_require_auth)],
 )
 async def api_fetch_web_content(
-    url: str,
-    include_links: bool = True,
-    start_word: int = 0,
-    num_words: int = 1000,
-    regex: Optional[str] = None,
-    regex_padding: int = 50,
-    use_llm_refinement: bool = False,
+    url: Annotated[str, Body(description="The URL to fetch and convert to markdown (required)")],
+    include_links: Annotated[bool, Body(description="Preserve anchor tag hrefs; otherwise unwrap anchors keeping only text")] = True,
+    start_word: Annotated[int, Body(description="Starting word index for pagination")] = 0,
+    num_words: Annotated[int, Body(description="Max words to return. When summarize=True, this is the max summary word count.")] = 1000,
+    regex: Annotated[Optional[str], Body(description="Regex pattern to filter content")] = None,
+    regex_padding: Annotated[int, Body(description="Characters of context around regex matches (default 50)")] = 50,
+    use_llm_refinement: Annotated[bool, Body(description="Apply an optional LLM cleanup pass for content quality")] = False,
+    summarize: Annotated[bool, Body(description="If true, return an LLM-generated summary instead of raw content")] = False,
+    summary_prompt: Annotated[str, Body(description="Custom prompt to guide the summarization (optional)")] = "",
 ) -> dict:
     return await fetch_web_content(
         url=url,
@@ -635,25 +632,8 @@ async def api_fetch_web_content(
         regex=regex,
         regex_padding=regex_padding,
         use_llm_refinement=use_llm_refinement,
-    )
-
-
-@app.post(
-    "/summarizeWebContent",
-    operation_id="summarizeWebContent",
-    tags=["mcp-tool"],
-    summary="Fetch AI-summarized URL content via configured LLM. This takes preference over `fetchWebContent` in general, as the summary prompt can be used to guide the summary.",
-    dependencies=[Depends(_require_auth)],
-)
-async def api_summarize_web_content(
-    url: str,
-    summary_prompt: str = "",
-    max_num_words: int = 800,
-) -> dict:
-    return await summarize_web_content(
-        url=url,
+        summarize=summarize,
         summary_prompt=summary_prompt,
-        max_num_words=max_num_words,
     )
 
 

@@ -94,14 +94,15 @@ async def test_fetch_web_content(session: ClientSession):
     print(json.dumps(response, indent=2))
 
 
-async def test_summarize_web_content(session: ClientSession):
-    print("\nTesting summarizeWebContent...")
+async def test_fetch_web_content_summarize(session: ClientSession):
+    print("\nTesting fetchWebContent (summarize mode)...")
     response = await call_mcp_tool(
         session,
-        "summarizeWebContent",
+        "fetchWebContent",
         {
             "url": "https://example.com",
-            "max_num_words": 300
+            "num_words": 300,
+            "summarize": True,
         },
     )
     print(json.dumps(response, indent=2))
@@ -117,7 +118,7 @@ async def main():
             await test_search_web_brave(session)
             await test_search_web_google(session)
             await test_fetch_web_content(session)
-            await test_summarize_web_content(session)
+            await test_fetch_web_content_summarize(session)
 
 
 if __name__ == "__main__":

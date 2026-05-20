@@ -1,7 +1,7 @@
 # WebTool-MCP AI Agent Instructions
 
 ## Project Purpose
-- WebTool-MCP is a Model Context Protocol (MCP) server exposing web fetch, web search, and web summarize tools.
+- WebTool-MCP is a Model Context Protocol (MCP) server exposing web fetch, web search tools. Summarization is now part of `fetchWebContent` via the `summarize=true` parameter.
 - The server is built with `FastMCP`, `httpx`, `BeautifulSoup`, `markdownify`, and OpenAI-compatible LLM endpoints.
 - The project prioritizes maximal quality output over minimal dependencies, using a multi-tiered extraction pipeline.
 
@@ -57,7 +57,7 @@
 - `search_web` supports multiple providers with dynamic provider configuration via environment variables.
   - Provider order and availability are determined by: `miklium` (always enabled), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `GOOGLE_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID`.
   - Search functions should gracefully fail over to the next available provider and include `failover_attempts` when appropriate.
-- `summarizeWebContent` uses `LLMManager` to perform multi-provider failover across OpenAI-compatible endpoints.
+- `fetchWebContent` with summarize=true uses `LLMManager` to perform multi-provider failover across OpenAI-compatible endpoints.
 - `LLMManager` should load provider configs from `LLM_PROVIDER_{N}_*` environment variables and preserve priority order.
 
 ## Content Extraction Pipeline
