@@ -84,12 +84,12 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                      Run all 8 examples
+  %(prog)s                      Run all 9 examples
   %(prog)s 1                    Run only example 1 (basic fetch)
   %(prog)s 1-3                  Run examples 1, 2, and 3
   %(prog)s 1,3,5                Run examples 1, 3, and 5
   %(prog)s 2-4,7                Run examples 2, 3, 4, and 7
-  
+   
 Example functions (numbered for selection):
   1. example_basic()          - Basic fetch with include_links option
   2. example_with_truncation()- Fetch with word-level truncation (num_words)
@@ -99,6 +99,7 @@ Example functions (numbered for selection):
   6. example_pdf_fetch()      - Fetch all files in examples/files/ via Docling
   7. example_llm_refinement() - LLM refinement pass for semantic cleanup
   8. example_full_content_fetch() - Full content fetch of real-world URLs
+  9. example_summary()        - Summarize content with LLM (summarize=True)
         """
     )
     
@@ -378,6 +379,54 @@ async def example_full_content_fetch():
             print(f"{'─' * 60}")
 
 
+async def example_summary():
+    """Example 9: Summarize content with LLM (summarize=True).
+
+    When summarize=True, an LLM generates a summary of the fetched content
+    instead of returning the full content. The summary is returned in the
+    'summary' key of the result (not 'content').
+
+    The summary_prompt parameter allows customizing how the LLM summarizes
+    the content by providing specific instructions.
+
+    Note: Requires at least one LLM_PROVIDER_*_BASE_URL to be configured
+    in .env; returns an error otherwise.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 9: Summarize Content (summarize=True)")
+    print("=" * 60)
+
+    # Example URL - Linux kernel README
+    url = "https://blog.comma.ai/011release/"
+
+    # Part 1: Basic summarize fetch
+    print("\n" + "-" * 60)
+    print("Part 1: Basic summarize=True")
+    print("-" * 60)
+    print(f"\nFetching and summarizing: {url}")
+
+    result = await real_fetch_web_content(
+        url,
+        summarize=True,
+    )
+
+    if "error" in result:
+        print(f"Error: {result['error']}")
+    else:
+        # When summarize=True, result has 'summary' key instead of 'content'
+        summary = result.get("summary", "")
+        if summary:
+            print(f"\nURL: {result['url']}")
+            print(f"Extraction method: {result.get('extraction_method', 'unknown')}")
+            print(f"\n{'─' * 60}")
+            print("SUMMARY:")
+            print(f"{'─' * 60}")
+            print(summary)
+            print(f"{'─' * 60}")
+        else:
+            print("No summary extracted (LLM may not be configured)")
+
+
 async def main(selected_examples: set[int] | None = None):
     """Run fetchWebContent examples.
     
@@ -394,6 +443,7 @@ async def main(selected_examples: set[int] | None = None):
         (6, "example_pdf_fetch", example_pdf_fetch),
         (7, "example_llm_refinement", example_llm_refinement),
         (8, "example_full_content_fetch", example_full_content_fetch),
+        (9, "example_summary", example_summary),
     ]
     
     # Determine which examples to run
@@ -408,7 +458,7 @@ async def main(selected_examples: set[int] | None = None):
         example_nums = sorted(selected_examples)
         print(f"# Running examples: {example_nums}")
     else:
-        print("# Running all 8 examples")
+        print("# Running all 9 examples")
     print("#" * 60)
     
     for example_num, example_name, example_func in examples_to_run:
