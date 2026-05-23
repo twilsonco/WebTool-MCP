@@ -37,7 +37,7 @@ sys.path.insert(0, str(project_root))
 from dotenv import load_dotenv
 
 # Load .env for LLM provider configuration
-load_dotenv(project_root / ".env")
+load_dotenv(project_root / ".env", override=True)
 
 from src.mcp_server.llm.manager import LLMManager
 from src.mcp_server.llm.exceptions import LLMProviderError
