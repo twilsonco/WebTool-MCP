@@ -89,7 +89,7 @@ async def test_fetch_web_content_summarize(session: ClientSession):
         session,
         "fetchWebContent",
         {
-            "url": "https://example.com",
+            "url": "https://blog.comma.ai/011release/",
             "num_words": 300,
             "summarize": True,
         },
@@ -230,13 +230,25 @@ def format_fetch_results(test_name: str, response: dict):
         data = json.loads(text_content)
         
         url = data.get("url", "Unknown URL")
+        # Check for summarization mode (returns 'summary' key) vs regular content
         web_content = data.get("content", "")
+        summary_content = data.get("summary", "")
         
         print(f"✓ Fetch successful")
         print(f"{'-'*60}")
         print(f"  URL: {url}")
-        print(f"  Content snippet (~500 chars):")
-        print(f"  {web_content[:500]}...")
+        
+        if summary_content:
+            # Summarization mode
+            print(f"  Mode: summarization")
+            print(f"  Summary snippet (~500 chars):")
+            print(f"  {summary_content[:500]}...")
+            print(f"\n  Word count of summary: {len(summary_content.split())} words")
+        else:
+            # Regular fetch mode
+            print(f"  Mode: regular content")
+            print(f"  Content snippet (~500 chars):")
+            print(f"  {web_content[:500]}...")
             
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         print(f"✗ Failed to parse response: {e}")
