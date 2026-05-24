@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -95,6 +96,79 @@ async def test_fetch_web_content_summarize(session: ClientSession):
     )
 
 
+def parse_example_selection(selection: str | None) -> set[int]:
+    """Parse comma-separated/range example selection like '1-3,5,7' into a set of integers.
+    
+    Args:
+        selection: Comma-separated list with optional ranges, e.g., '1-3,5,7' or '1,2,3'
+        
+    Returns:
+        Set of example numbers (1-indexed)
+        
+    Examples:
+        '1-3,5,7' -> {1, 2, 3, 5, 7}
+        '1,2,3'   -> {1, 2, 3}
+        '5'       -> {5}
+    """
+    if not selection:
+        return set()
+    
+    selected = set()
+    parts = selection.split(',')
+    
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        
+        if '-' in part:
+            range_parts = part.split('-')
+            if len(range_parts) == 2:
+                try:
+                    start, end = int(range_parts[0]), int(range_parts[1])
+                    if start <= end:
+                        selected.update(range(start, end + 1))
+                except ValueError:
+                    pass
+        else:
+            try:
+                selected.add(int(part))
+            except ValueError:
+                pass
+    
+    return selected
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="MCP Server test suite - Run integration tests against the MCP server.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                      Run all 6 tests
+  %(prog)s 1                    Run only test 1 (searchWeb default)
+  %(prog)s 1-3                  Run tests 1, 2, and 3
+  %(prog)s 1,3,5                Run tests 1, 3, and 5
+  %(prog)s 2-4,6                Run tests 2, 3, 4, and 6
+ 
+Tests (numbered for selection):
+  1. test_search_web           - searchWeb with default provider (miklium)
+  2. test_search_web_tavily    - searchWeb with tavily provider
+  3. test_search_web_brave     - searchWeb with brave provider
+  4. test_search_web_google    - searchWeb with google provider
+  5. test_fetch_web_content    - fetchWebContent basic
+  6. test_fetch_web_content_summarize - fetchWebContent with summarize
+        """
+    )
+    parser.add_argument(
+        "tests",
+        nargs="?",
+        help="Comma-separated test numbers or ranges (e.g., '1,3,5' or '1-4')"
+    )
+    return parser.parse_args()
+
+
 def format_search_results(test_name: str, provider: str, response: dict):
     """Format search results nicely for display."""
     print(f"\n{'='*60}")
@@ -161,42 +235,44 @@ def format_fetch_results(test_name: str, response: dict):
         print(f"✓ Fetch successful")
         print(f"{'-'*60}")
         print(f"  URL: {url}")
-        print(f"  Content snippet (~200 chars):")
-        print(f"  {web_content[:200]}...")
+        print(f"  Content snippet (~500 chars):")
+        print(f"  {web_content[:500]}...")
             
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         print(f"✗ Failed to parse response: {e}")
         print(f"  Raw response: {response}")
 
 
-async def main():
+async def main(selected_tests: set[int] | None = None):
     print(f"\n{'#'*60}")
     print(f"  MCP Server Test Suite")
     print(f"  Connecting to: {BASE_URL}")
+    if selected_tests:
+        print(f"  Running selected tests: {sorted(selected_tests)}")
     print(f"{'#'*60}")
     
     async with streamable_http_client(BASE_URL) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             
-            # Run all tests with formatted output
-            response = await test_search_web(session)
-            format_search_results("searchWeb (default - miklium)", "miklium", response)
+            # Define test functions and their indices
+            tests = [
+                (1, "searchWeb (default - miklium)", lambda: test_search_web(session), "search"),
+                (2, "searchWeb (tavily)", lambda: test_search_web_tavily(session), "search"),
+                (3, "searchWeb (brave)", lambda: test_search_web_brave(session), "search"),
+                (4, "searchWeb (google)", lambda: test_search_web_google(session), "search"),
+                (5, "fetchWebContent", lambda: test_fetch_web_content(session), "fetch"),
+                (6, "fetchWebContent (summarize mode)", lambda: test_fetch_web_content_summarize(session), "fetch"),
+            ]
             
-            response = await test_search_web_tavily(session)
-            format_search_results("searchWeb (tavily)", "tavily", response)
-            
-            response = await test_search_web_brave(session)
-            format_search_results("searchWeb (brave)", "brave", response)
-            
-            response = await test_search_web_google(session)
-            format_search_results("searchWeb (google)", "google", response)
-            
-            response = await test_fetch_web_content(session)
-            format_fetch_results("fetchWebContent", response)
-            
-            response = await test_fetch_web_content_summarize(session)
-            format_fetch_results("fetchWebContent (summarize mode)", response)
+            # Run selected tests or all tests if none specified
+            for test_num, test_name, test_func, test_type in tests:
+                if selected_tests is None or test_num in selected_tests:
+                    response = await test_func()
+                    if test_type == "search":
+                        format_search_results(test_name, "", response)
+                    else:
+                        format_fetch_results(test_name, response)
             
             print(f"\n{'#'*60}")
             print(f"  All tests completed!")
@@ -204,4 +280,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    args = parse_args()
+    selected_tests = parse_example_selection(args.tests)
+    asyncio.run(main(selected_tests))
