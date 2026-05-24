@@ -17,7 +17,6 @@ Extraction Pipeline (applied in order, best result wins):
 6. LLM refinement - optional semantic cleanup pass (use_llm_refinement=True)
 """
 import argparse
-import os
 import sys
 from pathlib import Path
 

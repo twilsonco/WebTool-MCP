@@ -12,7 +12,6 @@ Examples:
     uv run python examples/run_examples.py all       # Run everything
 """
 import asyncio
-import os
 import sys
 from pathlib import Path
 
