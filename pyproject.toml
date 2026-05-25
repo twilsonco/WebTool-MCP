@@ -20,6 +20,9 @@ dependencies = [
 webtool-mcp = "mcp_server.server:main"
 
 [project.optional-dependencies]
+browser-use = [
+    "browser-use>=0.1.0; python_version>='3.11'",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",

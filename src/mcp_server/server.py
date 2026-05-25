@@ -17,6 +17,7 @@ from mcp_server.auth import StaticTokenVerifier, load_api_keys_from_env
 from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
 from mcp_server.llm.parser import DOCLING_SUPPORTED_EXTENSIONS
 from mcp_server.extraction import ContentExtractionPipeline
+from mcp_server.agentic import AgenticFetchAgent
 
 load_dotenv()
 
@@ -635,6 +636,71 @@ async def api_fetch_web_content(
         summarize=summarize,
         summary_prompt=summary_prompt,
     )
+
+
+async def agentic_fetch(
+    prompt: str,
+    max_steps: int = 10
+) -> dict:
+    """
+    Agentic AI fetch mode that autonomously searches and browses the web.
+
+    Takes a natural language prompt like "find the most recent Federal Reserve
+    meeting minutes" and uses AI to plan and execute a series of web searches/fetches.
+
+    Returns detailed JSON with:
+    - success: Whether content was successfully found
+    - content: The extracted content if successful
+    - url: The primary URL where content was found
+    - urls_visited: List of all URLs attempted with titles and actions taken
+    - steps_taken: Detailed log of each agent step including actions and results
+    - error_message: Error description if not successful
+
+    Args:
+        prompt: Natural language request describing what to find
+        max_steps: Maximum number of agent steps (default 10, prevents infinite loops)
+
+    Returns:
+        Dict with detailed results including URLs visited and step-by-step actions
+    """
+    agent = AgenticFetchAgent(
+        llm_manager=llm_manager,
+        extraction_pipeline=_extraction_pipeline,
+        search_func=lambda q, num_results: search_web(q, num_results=num_results),
+        fetch_func=lambda url: fetch_web_content(url, include_links=True),
+        max_steps=max_steps
+    )
+
+    result = await agent.execute(prompt)
+    return result.to_dict()
+
+
+@app.post(
+    "/agenticFetch",
+    operation_id="agenticFetch",
+    tags=["mcp-tool"],
+    summary="Agentic AI fetch mode - autonomously search and browse to find information",
+    dependencies=[Depends(_require_auth)],
+)
+async def api_agentic_fetch(
+    prompt: Annotated[str, Body(description="Natural language request describing what to find (required)")],
+    max_steps: Annotated[int, Body(description="Maximum agent steps before giving up (default 10)")] = 10,
+) -> dict:
+    """
+    Agentic AI fetch endpoint.
+
+    Takes a natural language prompt and uses AI to autonomously:
+    1. Plan search queries
+    2. Execute web searches and fetches
+    3. Navigate pages as needed (clicking, scrolling via browser automation)
+    4. Evaluate whether content matches the request
+    5. Return findings or detailed report of URLs visited if not found
+
+    Returns:
+        JSON with success status, content/found information,
+        URLs visited list, and detailed step-by-step actions taken.
+    """
+    return await agentic_fetch(prompt=prompt, max_steps=max_steps)
 
 
 @app.get("/")
