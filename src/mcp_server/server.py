@@ -643,10 +643,20 @@ async def health() -> dict:
     return {"status": "ok", "name": "WebTool MCP Server"}
 
 
-# --- Mount MCP StreamableHTTP at /mcp ========================================
+# --- Mount MCP at /mcp =======================================================
+#
+# Support both POST (for JSON-RPC requests) and GET (for SSE streaming responses).
+# Roo Code uses GET /mcp to establish an SSE stream for receiving server messages.
+#
+# We use mount_sse() which provides:
+#   - GET  /mcp         -> SSE stream for server-to-client messages
+#   - POST /mcp/messages/  -> send JSON-RPC requests to the session
+#
+# This avoids race conditions in HTTP transport's stateless=False mode where
+# GET requests would fail with "Missing session ID" errors.
 
 fastapi_mcp = FastApiMCP(app, name="WebTool", include_tags=["mcp-tool"])
-fastapi_mcp.mount_http(mount_path="/mcp")
+fastapi_mcp.mount_sse(mount_path="/mcp")
 
 
 async def async_main() -> None:
