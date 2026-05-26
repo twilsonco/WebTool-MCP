@@ -12,7 +12,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +108,8 @@ When you cannot find what was requested after multiple attempts:
         self,
         llm_manager: Any = None,
         extraction_pipeline: Any = None,
-        search_func: Optional[callable] = None,
-        fetch_func: Optional[callable] = None,
+        search_func: Optional[Callable[[str, int], Any]] = None,
+        fetch_func: Optional[Callable[[str], Any]] = None,
         max_steps: int = 10
     ):
         """
@@ -142,7 +142,7 @@ When you cannot find what was requested after multiple attempts:
     async def _search(self, query: str) -> Dict[str, Any]:
         """Execute a web search."""
         if self._search_func:
-            return await self._search_func(query, num_results=10)
+            return await self._search_func(query)
         else:
             logger.error("No search function configured")
             return {"error": "Search not available"}
@@ -527,7 +527,9 @@ async def agentic_fetch(
     prompt: str,
     max_steps: int = 10,
     llm_manager: Any = None,
-    extraction_pipeline: Any = None
+    extraction_pipeline: Any = None,
+    search_func: Optional[Callable[[str, int], Any]] = None,
+    fetch_func: Optional[Callable[[str], Any]] = None
 ) -> Dict[str, Any]:
     """
     Convenience function to perform agentic fetch.
@@ -537,6 +539,8 @@ async def agentic_fetch(
         max_steps: Maximum agent steps (default 10)
         llm_manager: LLMManager instance
         extraction_pipeline: ContentExtractionPipeline instance
+        search_func: Async function for web searches (query, num_results) -> dict
+        fetch_func: Async function for content fetching (url) -> dict
         
     Returns:
         Dict with agentic fetch result
@@ -546,14 +550,38 @@ async def agentic_fetch(
     
     if llm_manager is None:
         try:
-            from ..llm import LLMManager as LLMImport
             llm_manager = LLMImport()
         except Exception as e:
             logger.error("Could not create LLM manager: %s", str(e))
     
+    # Create default search/fetch functions if not provided
+    if search_func is None:
+        async def _default_search(query, num_results=10):
+            try:
+                from ..server import search_web
+                return await search_web(query, num_results=num_results)
+            except Exception as e:
+                logger.error("Default search failed: %s", str(e))
+                return {"error": f"Search not available: {str(e)}"}
+        
+        search_func = _default_search
+    
+    if fetch_func is None:
+        async def _default_fetch(url):
+            try:
+                from ..server import fetch_web_content
+                return await fetch_web_content(url, include_links=True)
+            except Exception as e:
+                logger.error("Default fetch failed: %s", str(e))
+                return {"error": f"Fetch not available: {str(e)}"}
+        
+        fetch_func = _default_fetch
+    
     agent = AgenticFetchAgent(
         llm_manager=llm_manager,
         extraction_pipeline=extraction_pipeline,
+        search_func=search_func,
+        fetch_func=fetch_func,
         max_steps=max_steps
     )
     
