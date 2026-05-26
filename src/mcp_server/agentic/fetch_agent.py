@@ -147,7 +147,7 @@ When you cannot find what was requested after multiple attempts:
     async def _search(self, query: str) -> Dict[str, Any]:
         """Execute a web search."""
         if self._search_func:
-            return await self._search_func(query)
+            return await self._search_func(query, num_results=10)
         else:
             logger.error("No search function configured")
             return {"error": "Search not available"}
