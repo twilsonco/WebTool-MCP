@@ -93,7 +93,14 @@ Example response:
 """
 
 import asyncio
+from pathlib import Path
 from typing import Dict, Any
+
+from dotenv import load_dotenv
+
+# Load .env for LLM provider configuration
+project_root = Path(__file__).parent.parent
+load_dotenv(project_root / ".env", override=True)
 
 from mcp_server.agentic import agentic_fetch
 
