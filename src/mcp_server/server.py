@@ -11,6 +11,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi_mcp import FastApiMCP
 
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 from mcp_server.auth import StaticTokenVerifier, load_api_keys_from_env
@@ -19,7 +21,9 @@ from mcp_server.llm.parser import DOCLING_SUPPORTED_EXTENSIONS
 from mcp_server.extraction import ContentExtractionPipeline
 from mcp_server.agentic import AgenticFetchAgent
 
-load_dotenv()
+# Load .env from project root (one level up from src/)
+_ENV_PATH = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(_ENV_PATH)
 
 
 # --- Search Provider Enum ====================================================
