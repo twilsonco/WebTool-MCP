@@ -92,7 +92,27 @@ Example response:
 }
 """
 
+import asyncio
 from typing import Dict, Any
+
+from mcp_server.agentic import agentic_fetch
+
+
+async def run_agentic_search(prompt: str, max_steps: int = 15) -> Dict[str, Any]:
+    """
+    Actually calls the agentic fetch API with a given prompt.
+    
+    Args:
+        prompt: The natural language search query
+        max_steps: Maximum number of agentic steps to take
+        
+    Returns:
+        The result from the agentic fetch API
+    """
+    result = await agentic_fetch(prompt=prompt, max_steps=max_steps)
+    
+    print_example_result(result)
+    return result
 
 
 async def agentic_fetch_example_basic():
@@ -233,11 +253,17 @@ def print_example_result(result: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     import asyncio
+    import sys
     
-    print("Example: Successful agentic fetch")
-    result = asyncio.run(agentic_fetch_example_basic())
-    print_example_result(result)
-    
-    print("\n\nExample: Failed agentic fetch")
-    result = asyncio.run(agentic_fetch_example_not_found())
-    print_example_result(result)
+    if len(sys.argv) > 1 and sys.argv[1] == "--run":
+        prompt = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else "Summarize the most recent comma.ai blog post"
+        print(f"Running agentic search: {prompt}")
+        result = asyncio.run(run_agentic_search(prompt))
+    else:
+        print("Example: Successful agentic fetch")
+        result = asyncio.run(agentic_fetch_example_basic())
+        print_example_result(result)
+        
+        print("\n\nExample: Failed agentic fetch")
+        result = asyncio.run(agentic_fetch_example_not_found())
+        print_example_result(result)
