@@ -13,6 +13,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,10 @@ When you cannot find what was requested after multiple attempts:
         self._search_func = search_func
         self._fetch_func = fetch_func
         self.max_steps = max_steps
+        
+        # Add current UTC-0 date/time in YYYY-MM-DD HH:MM:SS format to system prompt for better context in decision-making
+        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        self.SYSTEM_PROMPT += f"\n\n The current date and time is: {current_time} UTC."
     
     async def _call_llm(self, prompt: str) -> Optional[str]:
         """Call the LLM with a prompt."""

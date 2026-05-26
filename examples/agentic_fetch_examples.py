@@ -93,11 +93,10 @@ Example response:
 """
 
 import asyncio
-from pathlib import Path
 from typing import Dict, Any
 
+from pathlib import Path
 from dotenv import load_dotenv
-
 # Load .env for LLM provider configuration
 project_root = Path(__file__).parent.parent
 load_dotenv(project_root / ".env", override=True)
@@ -230,7 +229,7 @@ def print_example_result(result: Dict[str, Any]) -> None:
         content = result['content']
         print(f"\nContent ({len(content)} chars):")
         print("-" * 40)
-        preview = content[:500] + "..." if len(content) > 500 else content
+        preview = content[:2000] + "..." if len(content) > 2000 else content
         print(preview)
     
     urls = result.get('urls_visited', [])
@@ -241,7 +240,7 @@ def print_example_result(result: Dict[str, Any]) -> None:
             title = url_info.get('title', 'No title')
             url = url_info.get('url', '')
             action = url_info.get('action', '')
-            print(f"  • {title[:50]}")
+            print(f"  • {title[:100]}")
             print(f"    URL: {url}")
             print(f"    Action: {action}")
     
@@ -252,7 +251,7 @@ def print_example_result(result: Dict[str, Any]) -> None:
         for step in steps:
             step_num = step.get('step', '?')
             action = step.get('action', '')
-            desc = str(step.get('description', ''))[:50]
+            desc = str(step.get('description', ''))[:500]
             print(f"  Step {step_num}: [{action}] {desc}...")
     
     print("\n" + "=" * 60)

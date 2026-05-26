@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Annotated, Optional
 from urllib.parse import urlparse
@@ -419,6 +419,10 @@ async def summarize_text(
         Dict with 'summary', or 'error' on LLM failure.
     """
     system_prompt = DEFAULT_SUMMARY_PROMPT + (f"\n\n**More importantly: {summary_prompt}**" if summary_prompt else "") + f"\n**You produce summaries using no more than {max_words} words.**"
+    
+    # Add current date/time in YYYY-MM-DD HH:MM:SS format to system prompt for better context in summarization
+    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    system_prompt += f"\n\n The current date and time is: {current_time} UTC."
 
     try:
         user_prompt = f"Summarize the following content in no more than {max_words} words:\n\n{text}"
