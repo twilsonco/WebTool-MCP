@@ -83,3 +83,24 @@ uv run python examples/search_web_examples.py --dry-run    # print specs, no API
 ### summarize_web_content_examples.py (removed)
 
 This file has been removed. Summarization is now part of `fetchWebContent` — use it with `summarize=true` and optional `summary_prompt`.
+
+### sse_streaming_example.py
+
+Demonstrates SSE (Server-Sent Events) streaming with WebTool-MCP. Shows how to:
+- Connect using the streamable-http transport
+- Establish SSE streaming via GET /mcp endpoint
+- Send JSON-RPC requests and receive responses
+
+The MCP server uses `mount_sse()` which provides:
+- **GET /mcp** → SSE stream for server-to-client messages (Roo Code integration)
+- **POST /mcp/messages/** → send JSON-RPC requests to the session
+
+```bash
+# Start the MCP server in HTTP mode first:
+uv run python src/mcp_server/server.py --http
+
+# In another terminal, run the SSE streaming example:
+uv run python examples/sse_streaming_example.py           # all demos
+uv run python examples/sse_streaming_example.py search    # only searchWeb demo
+uv run python examples/sse_streaming_example.py fetch     # only fetchWebContent demo
+```

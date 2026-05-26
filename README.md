@@ -136,7 +136,12 @@ Change the host or port with `--host` and `--port`:
 uv run python src/mcp_server/server.py --host 0.0.0.1 --port 9000
 ```
 
-The server exposes a health check at `/` and the MCP streamable-http endpoint at `/mcp`.
+The server exposes:
+- **Health check**: `GET /` → Returns `{"status": "ok", "name": "WebTool MCP Server"}`
+- **MCP SSE endpoint**: `GET /mcp` → Establishes an SSE stream for server-to-client messages (required by Roo Code)
+- **MCP JSON-RPC endpoint**: `POST /mcp/messages/` → Send JSON-RPC requests to the MCP session
+
+This dual-endpoint design using `mount_sse()` avoids race conditions in HTTP transport's stateless=False mode where GET requests would fail with "Missing session ID" errors.
 
 ### Running Examples
 
@@ -185,9 +190,13 @@ result = await fetch_web_content(
 
 **Example (curl — HTTP transport):**
 
+The MCP server uses a dual-endpoint design:
+- `GET /mcp` — Establishes an SSE stream for server-to-client messages
+- `POST /mcp/messages/` — Sends JSON-RPC requests to the session
+
 First initialize a session:
 ```bash
-curl -X POST http://localhost:8000/mcp \
+curl -X POST http://localhost:8000/mcp/messages/ \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"curl","version":"1.0"},"protocolVersion":"2025-11-25"}}'
@@ -195,7 +204,7 @@ curl -X POST http://localhost:8000/mcp \
 
 Then call the tool (include the `mcp-session-id` header from the initialize response):
 ```bash
-curl -X POST http://localhost:8000/mcp \
+curl -X POST http://localhost:8000/mcp/messages/ \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
   -H "mcp-session-id: <session-id>" \
@@ -253,7 +262,7 @@ result = await search_web(
 
 After initializing a session (see fetchWebContent example above), call the tool:
 ```bash
-curl -X POST http://localhost:8000/mcp \
+curl -X POST http://localhost:8000/mcp/messages/ \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
   -H "mcp-session-id: <session-id>" \
