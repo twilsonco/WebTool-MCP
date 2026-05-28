@@ -20,6 +20,60 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
+# Content truncation constant for previews
+CONTENT_PREVIEW_MAX_LENGTH = 500
+
+
+def _normalize_url(url: Optional[str]) -> str:
+    """
+    Normalize a URL for deduplication purposes.
+    
+    This function creates a canonical form of a URL by:
+    - Lowercasing the scheme and host
+    - Removing trailing slashes from the path (except for root "/")
+    - Stripping "www." prefix from hostname (to treat www and non-www as equivalent)
+    
+    Args:
+        url: The URL to normalize (can be None or empty string)
+        
+    Returns:
+        Normalized URL string for comparison during deduplication
+    """
+    if not url or not isinstance(url, str):
+        return ""
+    
+    url = url.strip()
+    
+    # Lowercase scheme and host (found after "://" or at the start)
+    try:
+        if "://" in url:
+            scheme, rest = url.split("://", 1)
+            # Find host/path separator
+            if "/" in rest:
+                host_port_path = rest.split("/", 1)
+                host_port = host_port_path[0]
+                path = "/" + host_port_path[1] if len(host_port_path) > 1 else ""
+            else:
+                host_port = rest
+                path = ""
+            
+            # Lowercase scheme and host, strip www prefix
+            scheme = scheme.lower()
+            if host_port.startswith("www."):
+                host_port = host_port[4:]
+            
+            # Remove trailing slash from path (except root)
+            if path.endswith("/") and len(path) > 1:
+                path = path[:-1]
+            
+            return f"{scheme}://{host_port}{path}"
+        else:
+            # No scheme, just lowercase and return
+            return url.lower()
+    except Exception:
+        # Fallback: return lowercased original URL
+        return url.lower()
+
 
 class ActionType(str, Enum):
     """Enumeration of valid action types for the agent."""
@@ -239,8 +293,8 @@ class FetchStep(BaseModel):
     )
     result_preview: str = Field(
         default="",
-        max_length=500,
-        description="First 500 characters of result for preview"
+        max_length=CONTENT_PREVIEW_MAX_LENGTH,
+        description=f"First {CONTENT_PREVIEW_MAX_LENGTH} characters of result for preview"
     )
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -255,7 +309,7 @@ class FetchStep(BaseModel):
             "description": "",  # No description field in FetchStep model
             "query": self.query,
             "url": self.url,
-            "result_preview": self.result_preview[:500] if len(self.result_preview) > 500 else self.result_preview,
+            "result_preview": self.result_preview[:CONTENT_PREVIEW_MAX_LENGTH] if len(self.result_preview) > CONTENT_PREVIEW_MAX_LENGTH else self.result_preview,
             "timestamp": self.timestamp.isoformat()
         }
 
@@ -284,7 +338,7 @@ class AgenticFetchResult:
                     "action": s.get("action", ""),
                     "description": s.get("description", ""),
                     "url": s.get("url"),
-                    "result_preview": str(s.get("result", ""))[:500] if s.get("result") else None
+                    "result_preview": str(s.get("result", ""))[:CONTENT_PREVIEW_MAX_LENGTH] if s.get("result") else None
                 }
                 for s in self.steps_taken
             ],
@@ -306,11 +360,11 @@ class AgenticFetchAgent:
     are not available or fail.
     """
     
-    SYSTEM_PROMPT = """You are a web browsing agent that helps users find information on the internet.
+    _BASE_SYSTEM_PROMPT = """You are a web browsing agent that helps users find information on the internet.
 
 Your capabilities:
 1. Search the web using search_web tool
-2. Fetch and extract content from URLs using fetch_web_content  
+2. Fetch and extract content from URLs using fetch_web_content
 3. Navigate to URLs directly
 4. Evaluate whether found content matches the user's request
 
@@ -371,9 +425,14 @@ When you cannot find what was requested after multiple attempts:
         self._fetch_func = fetch_func
         self.max_steps = max_steps
         
+        # Step budget tracking per action type (initialized in execute())
+        self._search_steps = 0
+        self._fetch_steps = 0
+        
         # Add current UTC-0 date/time in YYYY-MM-DD HH:MM:SS format to system prompt for better context in decision-making
+        # Initialize as instance attribute to avoid thread-safety issues with class-level mutation
         current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        self.SYSTEM_PROMPT += f"\n\n The current date and time is: {current_time} UTC."
+        self.SYSTEM_PROMPT = self._BASE_SYSTEM_PROMPT + f"\n\n The current date and time is: {current_time} UTC."
     
     async def _call_llm(self, prompt: str) -> Optional[str]:
         """Call the LLM with a prompt."""
@@ -673,7 +732,7 @@ YES - [brief reason]  or  NO - [brief reason]
         raise ActionParsingError(
             f"Could not parse LLM response into any known action type. "
             f"No JSON structure found and no keyword matches.",
-            raw_response=response[:500],  # Truncate for logging
+            raw_response=response[:CONTENT_PREVIEW_MAX_LENGTH],  # Truncate for logging
             cause=None
         )
     
@@ -724,6 +783,10 @@ YES - [brief reason]  or  NO - [brief reason]
         
         current_context = f"The user wants to find the following information: {prompt}\n\n"
         
+        # Initialize step budget counters at start of each execute() call
+        self._search_steps = 0
+        self._fetch_steps = 0
+        
         for step_num in range(1, self.max_steps + 1):
             logger.info("Agent step %d/%d", step_num, self.max_steps)
             
@@ -764,7 +827,7 @@ Be strategic and try different approaches if initial searches don't work."""
                     "step": step_num,
                     "action": "error",
                     "description": f"Could not parse LLM response at step {step_num}",
-                    "result": llm_response[:500]
+                    "result": llm_response[:CONTENT_PREVIEW_MAX_LENGTH]
                 })
                 current_context += f"\nStep {step_num}: Could not determine action.\n"
                 continue
@@ -828,6 +891,9 @@ Be strategic and try different approaches if initial searches don't work."""
                         result.steps_taken.append(step_result)
                         continue
                     
+                    # Track search steps for reporting
+                    self._search_steps += 1
+
                     step_result["url"] = f"Search: {query}"
                     
                     # Use browser search if available, fallback to regular
@@ -889,7 +955,9 @@ Only return valid JSON array, no other text."""
                     if isinstance(search_results, list):
                         for r in search_results:
                             url = r.get("url", "")
-                            if url and not any(u.get("url") == url for u in result.urls_visited):
+                            normalized_url = _normalize_url(url)
+                            # Check if any visited URL matches when normalized (deduplication)
+                            if url and not any(_normalize_url(u.get("url")) == normalized_url for u in result.urls_visited):
                                 result.urls_visited.append({
                                     "url": url,
                                     "title": r.get("title", "")[:100],
@@ -912,6 +980,17 @@ Only return valid JSON array, no other text."""
                         result.steps_taken.append(step_result)
                         continue
                     
+                    # Check for duplicate URL (using normalized form for deduplication)
+                    normalized_url = _normalize_url(url)
+                    if any(_normalize_url(u.get("url")) == normalized_url for u in result.urls_visited):
+                        current_context += f"\nStep {step_num} ({action}): Skipping already visited URL '{url}'.\n"
+                        step_result["result"] = "Duplicate URL (already visited)"
+                        result.steps_taken.append(step_result)
+                        continue
+                    
+                    # Track fetch steps for reporting
+                    self._fetch_steps += 1
+
                     step_result["url"] = url
                     
                     # Use browser navigate if available, fallback to regular fetch
@@ -955,7 +1034,7 @@ Only return valid JSON."""
                                 current_context += f"Extracted {len(content) if content else 0} characters.\n"
                                 
                                 if content:
-                                    current_context += f"Content preview: {content[:500]}...\n"
+                                    current_context += f"Content preview: {content[:CONTENT_PREVIEW_MAX_LENGTH]}...\n"
                         else:
                             # Browser succeeded
                             parsed = browser_result.get("result")
@@ -983,7 +1062,7 @@ Only return valid JSON."""
                             
                             # Check for relevant content
                             if content:
-                                current_context += f"Content preview: {content[:500]}...\n"
+                                current_context += f"Content preview: {content[:CONTENT_PREVIEW_MAX_LENGTH]}...\n"
                                 
                     except BrowserToolError:
                         # Fall back to regular fetch if browser failed
@@ -1007,10 +1086,23 @@ Only return valid JSON."""
                             current_context += f"Extracted {len(content) if content else 0} characters.\n"
                             
                             if content:
-                                current_context += f"Content preview: {content[:500]}...\n"
+                                current_context += f"Content preview: {content[:CONTENT_PREVIEW_MAX_LENGTH]}...\n"
                 
                 elif action == "evaluate":
-                    current_context += f"\nStep {step_num} (evaluate): LLM evaluated progress.\n"
+                    current_context += f"\nStep {step_num} (evaluate): LLM evaluating progress and content quality.\n"
+                    
+                    # Try to evaluate the most recently fetched content for relevance
+                    if result.urls_visited:
+                        last_url_entry = result.urls_visited[-1]
+                        # Note: We don't have the full content stored, just URL/title
+                        # So we do a simple evaluation based on what we know
+                        current_context += f"Last fetched URL: {last_url_entry.get('url', 'unknown')}\n"
+                        current_context += f"Visited URLs so far: {len(result.urls_visited)}\n"
+                        current_context += f"Total steps taken: {step_num - 1}\n"
+                    else:
+                        current_context += "No content fetched yet. Consider searching or fetching a URL.\n"
+                    
+                    # Add evaluation result to context for LLM's next decision
                     current_context += f"Evaluation: {action_data.get('description', '')}\n"
                     
                 else:
