@@ -3,7 +3,7 @@ Agentic AI fetch agent using browser-use for autonomous web browsing.
 
 This module provides an agent that can:
 - Take a natural language prompt
-- Plan and execute web searches/fetches using AI decision-making  
+- Plan and execute web searches/fetches using AI decision-making
 - Navigate, click, scroll as needed using browser automation
 - Return found content or a detailed report of URLs visited if not found
 """
@@ -12,10 +12,252 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional, Union
 from datetime import datetime, timezone
 
+from pydantic import BaseModel, Field, field_validator, model_validator
+
 logger = logging.getLogger(__name__)
+
+
+class ActionType(str, Enum):
+    """Enumeration of valid action types for the agent."""
+    
+    SEARCH = "search"
+    FETCH = "fetch"
+    NAVIGATE = "navigate"
+    EVALUATE = "evaluate"
+    DONE = "done"
+
+
+class ActionParsingError(Exception):
+    """
+    Exception raised when the LLM response cannot be parsed into an action.
+    
+    This provides detailed context about parsing failures for debugging
+    and error handling purposes.
+    """
+    
+    def __init__(self, message: str, raw_response: str = "", cause: Optional[Exception] = None):
+        super().__init__(message)
+        self.raw_response = raw_response
+        self.cause = cause
+
+
+class LLMAction(BaseModel):
+    """
+    Pydantic model representing an action parsed from LLM response.
+    
+    This provides type-safe validation of LLM outputs with clear field
+    documentation and validation rules.
+    
+    Attributes:
+        action: The type of action to perform (search, fetch, navigate, evaluate, done)
+        query: Optional search query for SEARCH actions
+        url: Optional URL for FETCH or NAVIGATE actions
+        result: Final content for DONE actions when successful
+        reasoning: Explanation of why this action was chosen (used internally)
+    """
+    
+    action: str = Field(
+        ...,
+        description="The type of action to perform",
+        examples=["search", "fetch", "navigate", "evaluate", "done"]
+    )
+    query: Optional[str] = Field(
+        default=None,
+        description="Search query for SEARCH actions"
+    )
+    url: Optional[str] = Field(
+        default=None,
+        description="URL to fetch or navigate for FETCH/NAVIGATE actions"
+    )
+    result: Optional[str] = Field(
+        default=None,
+        validation_alias="content",  # Accept "content" from LLM JSON output
+        description="Final content for DONE actions when successfully completed"
+    )
+    
+    reasoning: Optional[str] = Field(
+        default=None,
+        validation_alias="description",  # Accept "description" from LLM JSON
+        description="Explanation of why this action was chosen"
+    )
+    
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v: str) -> str:
+        """Validate action is one of the known action types."""
+        normalized = v.lower().strip()
+        
+        # Accept any valid action type even if not in our enum
+        valid_actions = {a.value for a in ActionType}
+        
+        # Support legacy spellings/variations
+        if normalized == "nav" or normalized.startswith("navigat"):
+            return ActionType.NAVIGATE.value
+        elif normalized in valid_actions:
+            return normalized
+        
+        # Return as-is for backward compatibility; execute() will handle unknown actions
+        return normalized
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for backward compatibility."""
+        return {
+            "action": self.action,
+            "description": self.reasoning or "",
+            "query": self.query,
+            "url": self.url,
+            "content": self.result
+        }
+
+
+class BrowserToolError(Exception):
+    """Exception raised when browser tool operations fail."""
+    
+    def __init__(self, message: str, fallback_used: bool = False):
+        super().__init__(message)
+        self.fallback_used = fallback_used
+
+
+class BrowserTool:
+    """
+    Reusable browser automation tool using browser-use Agent.
+    
+    This class encapsulates the common pattern of:
+    1. Creating a browser-use Agent with a task description
+    2. Running the agent to completion
+    3. Parsing and returning the result
+    4. Falling back gracefully if browser-use is unavailable
+    
+    Example:
+        async def fallback_search(query):
+            return await regular_search_func(query)
+        
+        tool = BrowserTool(
+            task_description=f"Search for: {query}",
+            fallback_func=lambda: fallback_search(query)
+        )
+        result = await tool.execute()
+    """
+    
+    def __init__(
+        self,
+        task_description: str,
+        fallback_func: Optional[Callable[[], Any]] = None
+    ):
+        """
+        Initialize BrowserTool.
+        
+        Args:
+            task_description: The natural language task for the browser agent
+            fallback_func: Optional async function to call if browser-use fails
+        """
+        self.task_description = task_description
+        self.fallback_func = fallback_func
+    
+    async def execute(self) -> Dict[str, Any]:
+        """
+        Execute the browser agent task.
+        
+        Returns:
+            Dictionary with either:
+            - {"success": True, "result": <parsed result>}
+            - {"success": False, "error": <error message>} if fallback also fails
+            
+        If browser-use is unavailable or fails, calls fallback_func if provided.
+        """
+        try:
+            from browser_use import Agent as BrowserAgent
+            
+            agent = BrowserAgent(task=self.task_description)
+            raw_result = await agent.run()
+            
+            # If result is a string, try to parse as JSON
+            if isinstance(raw_result, str):
+                try:
+                    parsed = json.loads(raw_result)
+                    return {"success": True, "result": parsed}
+                except json.JSONDecodeError:
+                    # Return raw string if not valid JSON
+                    return {"success": True, "result": raw_result}
+            
+            # Otherwise return as-is
+            return {"success": True, "result": raw_result}
+            
+        except ImportError:
+            logger.info("browser-use not installed, using fallback")
+            if self.fallback_func is not None:
+                result = await self.fallback_func()
+                return {"success": True, "result": result, "fallback_used": True}
+            raise BrowserToolError(
+                "browser-use not installed and no fallback provided",
+                fallback_used=False
+            )
+        except Exception as e:
+            logger.warning("BrowserTool execution failed: %s", str(e))
+            if self.fallback_func is not None:
+                result = await self.fallback_func()
+                return {"success": True, "result": result, "fallback_used": True}
+            raise BrowserToolError(str(e), fallback_used=False)
+
+
+class FetchStep(BaseModel):
+    """
+    Pydantic model representing a single step in the agent's execution.
+    
+    Records what action was taken, any parameters used, and a preview
+    of the result for logging and debugging purposes.
+    
+    Attributes:
+        step_number: Sequential step number in the agent execution
+        action: The type of action performed (search, fetch, navigate, evaluate)
+        query: Search query if action was SEARCH
+        url: URL if action involved a specific URL
+        result_preview: First 500 characters of the step's result
+        timestamp: When this step was executed (UTC)
+    """
+    
+    step_number: int = Field(
+        ...,
+        ge=1,
+        description="Sequential step number in agent execution"
+    )
+    action: str = Field(
+        ...,
+        description="Type of action performed (search, fetch, navigate, evaluate)"
+    )
+    query: Optional[str] = Field(
+        default=None,
+        description="Search query for SEARCH actions"
+    )
+    url: Optional[str] = Field(
+        default=None,
+        description="URL involved in this step (fetch/navigate URL or search query)"
+    )
+    result_preview: str = Field(
+        default="",
+        max_length=500,
+        description="First 500 characters of result for preview"
+    )
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When this step was executed (UTC)"
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for backward compatibility with existing code."""
+        return {
+            "step": self.step_number,
+            "action": self.action,
+            "description": "",  # No description field in FetchStep model
+            "query": self.query,
+            "url": self.url,
+            "result_preview": self.result_preview[:500] if len(self.result_preview) > 500 else self.result_preview,
+            "timestamp": self.timestamp.isoformat()
+        }
 
 
 @dataclass
@@ -167,28 +409,39 @@ When you cannot find what was requested after multiple attempts:
         Falls back to regular search if browser-use is not installed
         or fails.
         """
+        task = f"Search for: {query}. Return a JSON array of search results with title, url, and snippet fields."
+        
+        tool = BrowserTool(
+            task_description=task,
+            fallback_func=lambda: self._search(query)
+        )
+        
         try:
-            from browser_use import Agent as BrowserAgent
+            result = await tool.execute()
             
-            # Create a simple agent to execute the search
-            task = f"Search for: {query}. Return a JSON array of search results with title, url, and snippet fields."
+            if result.get("fallback_used"):
+                # Browser failed, fallback was used - return that result
+                return result.get("result", {"error": "Fallback failed"})
             
-            agent = BrowserAgent(task=task)
-            result = await agent.run()
+            parsed = result.get("result")
             
-            # Parse the result
-            if isinstance(result, str):
+            # Validate we got a list (search results)
+            if isinstance(parsed, str):
                 try:
-                    return json.loads(result)
+                    parsed = json.loads(parsed)
                 except json.JSONDecodeError:
-                    pass
+                    return {"error": f"Browser search failed to parse: {parsed}"}
             
-            return {"error": f"Browser search failed: {result}"}
+            if isinstance(parsed, list):
+                return parsed
             
-        except ImportError:
-            logger.info("browser-use not installed, falling back to regular search")
-            return await self._search(query)
-        except Exception as e:
+            # If we got a dict with error info
+            if isinstance(parsed, dict) and "error" in parsed:
+                return {"error": f"Browser search failed: {parsed.get('error')}"}
+            
+            return {"error": f"Unexpected browser search result type: {type(parsed)}"}
+            
+        except BrowserToolError as e:
             logger.warning("Browser search failed: %s, falling back to regular search", str(e))
             return await self._search(query)
     
@@ -198,11 +451,8 @@ When you cannot find what was requested after multiple attempts:
         
         Falls back to regular fetch if browser-use is not installed or fails.
         """
-        try:
-            from browser_use import Agent as BrowserAgent
-            
-            task = f"""Navigate to {url} and extract the main content.
-            
+        task = f"""Navigate to {url} and extract the main content.
+
 Wait for any dynamic content to load. Extract:
 1. The page title
 2. The main article/content body as plain text
@@ -211,49 +461,251 @@ Wait for any dynamic content to load. Extract:
 Return a JSON object with:
 {{"title": "...", "content": "...", "url": "{url}"}}"""
 
-            agent = BrowserAgent(task=task)
-            result = await agent.run()
+        tool = BrowserTool(
+            task_description=task,
+            fallback_func=lambda: self._fetch(url)
+        )
+        
+        try:
+            result = await tool.execute()
             
-            if isinstance(result, str):
+            if result.get("fallback_used"):
+                # Browser failed, fallback was used - return that result
+                return result.get("result", {"error": "Fallback failed"})
+            
+            parsed = result.get("result")
+            
+            # Validate we got a dict (page data)
+            if isinstance(parsed, str):
                 try:
-                    return json.loads(result)
+                    parsed = json.loads(parsed)
                 except json.JSONDecodeError:
-                    pass
+                    return {"error": f"Browser navigate failed to parse: {parsed}"}
             
-            return {"error": f"Browser navigate failed: {result}"}
+            if isinstance(parsed, dict):
+                # Ensure URL is set in result
+                if "url" not in parsed:
+                    parsed["url"] = url
+                return parsed
             
-        except ImportError:
-            logger.info("browser-use not installed, falling back to regular fetch")
-            return await self._fetch(url)
-        except Exception as e:
+            # If we got a list (unexpected)
+            if isinstance(parsed, list):
+                return {"error": f"Browser navigate returned unexpected list"}
+            
+            return {"error": f"Unexpected browser navigate result type: {type(parsed)}"}
+            
+        except BrowserToolError as e:
             logger.warning("Browser navigate failed: %s, falling back to regular fetch", str(e))
             return await self._fetch(url)
     
-    def _parse_llm_action(self, response: str) -> Optional[Dict[str, Any]]:
-        """Parse the LLM's JSON action response."""
+    async def _validate_content_relevance(
+        self,
+        prompt: str,
+        fetched_content: str
+    ) -> tuple[bool, str]:
+        """
+        Validate that the fetched content actually answers the user's prompt.
+        
+        Uses an LLM to evaluate whether the content is relevant to the original request,
+        returning a tuple of (is_relevant, reasoning).
+        
+        Args:
+            prompt: The user's original request
+            fetched_content: The content to validate
+            
+        Returns:
+            Tuple of (is_relevant: bool, reasoning: str)
+            
+        Note:
+            If validation fails for any reason (LLM unavailable, parse error, etc.),
+            we default to allowing the content but log a warning.
+        """
+        if not fetched_content or len(fetched_content.strip()) == 0:
+            return False, "Content is empty"
+        
+        # Truncate content if too long for validation (avoid token limits)
+        max_content_len = 4000
+        truncated_content = fetched_content[:max_content_len]
+        if len(fetched_content) > max_content_len:
+            truncated_content += "... [content truncated for validation]"
+        
+        # Simple prompt that doesn't use the agent's system prompt
+        validation_prompt = f"""Given the user's original request: '{prompt}'
+
+And the fetched content:
+---
+{truncated_content}
+---
+
+Does this content adequately answer the request? Respond with YES or NO followed by a brief explanation (1-2 sentences max).
+
+Format your response as:
+YES - [brief reason]  or  NO - [brief reason]
+"""
+        
         try:
-            # Try to find a JSON block in the response
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
+            # Call LLM without the agent's system prompt (which expects JSON action output)
+            if self._llm_manager is None:
+                logger.warning("Content relevance validation: no LLM manager, allowing content by default")
+                return True, "No LLM available for validation"
+            
+            response = await self._llm_manager.complete(validation_prompt, system_prompt=None)
+            
+            if not response:
+                logger.warning("Content relevance validation: LLM call returned empty, defaulting to allow")
+                return True, "Validation failed (empty response), allowing content by default"
+            
+            # Parse the YES/NO response
+            response_clean = response.strip().upper()
+            
+            if response_clean.startswith("YES"):
+                # Extract reasoning after "YES"
+                reason = response[len("YES"):].strip()
+                if reason.startswith("-"):
+                    reason = reason[1:].strip()
+                return True, f"Content validated as relevant: {reason}"
+            elif response_clean.startswith("NO"):
+                # Extract reasoning after "NO"
+                reason = response[len("NO"):].strip()
+                if reason.startswith("-"):
+                    reason = reason[1:].strip()
+                return False, f"Content validated as not relevant: {reason}"
+            else:
+                # Couldn't parse response, log warning and allow by default
+                logger.warning("Content relevance validation: could not parse response '%s', allowing content",
+                             response[:100])
+                return True, f"Validation unclear ('{response[:50]}...'), allowing content by default"
+                
+        except Exception as e:
+            logger.warning("Content relevance validation failed: %s, defaulting to allow content", str(e))
+            return True, f"Validation error ('{str(e)[:50]}...'), allowing content by default"
+    
+    def _parse_llm_action(self, response: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse the LLM's JSON action response into an LLMAction.
+        
+        Uses a multi-stage parsing approach:
+        1. First attempts proper JSON parsing with Pydantic validation
+        2. Falls back to keyword extraction only if both:
+           - JSON parsing fails AND
+           - Keywords indicating intent are found
+        3. Raises ActionParsingError only if all parsing attempts fail
+        
+        Args:
+            response: Raw string response from the LLM
+            
+        Returns:
+            Dictionary representation of LLMAction for backward compatibility,
+            or None only when keyword fallback finds no matches (to continue execution)
+            
+        Raises:
+            ActionParsingError: When neither JSON parsing nor keyword fallback succeeds
+        """
+        if not response or not response.strip():
+            raise ActionParsingError(
+                "Empty LLM response",
+                raw_response=response
+            )
+        
+        stripped = response.strip()
+        
+        # Stage 1: Try proper JSON parsing with Pydantic
+        try:
+            json_start = stripped.find("{")
+            json_end = stripped.rfind("}") + 1
             
             if json_start >= 0 and json_end > json_start:
-                json_str = response[json_start:json_end]
-                return json.loads(json_str)
+                json_str = stripped[json_start:json_end]
+                
+            # Try to parse directly if no braces found
+            elif stripped.startswith(('{', '[')):
+                json_str = stripped.rstrip(',').rstrip('}')
+            else:
+                # Try finding JSON within text
+                json_start = stripped.find('{')
+                if json_start == -1:
+                    raise ValueError("No JSON object found in response")
+                json_end = stripped.rfind('}')
+                if json_end <= json_start:
+                    raise ValueError("Invalid JSON structure")
+                json_str = stripped[json_start:json_end + 1]
             
-            # Try parsing the whole response as JSON
-            return json.loads(response.strip())
+            # Use Pydantic for validation, then convert to dict
+            action = LLMAction.model_validate_json(json_str)
+            return action.to_dict()
             
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning("Failed to parse LLM action response: %s", str(e))
+        except Exception as json_error:
+            logger.debug("JSON parsing failed: %s", str(json_error))
             
-            # Try a simple fallback - look for keywords
-            response_lower = response.lower()
-            if "done" in response_lower:
-                return {"action": "done", "description": response}
-            elif any(term in response_lower for term in ["search", "look up", "find"]):
-                return {"action": "search", "description": response}
+        # Stage 2: Keyword-based fallback (only if JSON failed)
+        response_lower = stripped.lower()
+        
+        # Define keywords that indicate specific actions
+        if "done" in response_lower:
+            return LLMAction(
+                action=ActionType.DONE.value,
+                result="",
+                reasoning=f"Keyword fallback: 'done' found in response"
+            ).to_dict()
+        elif any(term in response_lower for term in ["search", "look up", "find"]):
+            return LLMAction(
+                action=ActionType.SEARCH.value,
+                query="",
+                reasoning=f"Keyword fallback: search-related term found in response"
+            ).to_dict()
+        elif any(term in response_lower for term in ["fetch", "visit"]):
+            return LLMAction(
+                action=ActionType.FETCH.value,
+                reasoning=f"Keyword fallback: fetch-related term found in response"
+            ).to_dict()
+        elif "navigate" in response_lower:
+            return LLMAction(
+                action=ActionType.NAVIGATE.value,
+                reasoning=f"Keyword fallback: 'navigate' found in response"
+            ).to_dict()
+        elif "evaluate" in response_lower:
+            return LLMAction(
+                action=ActionType.EVALUATE.value,
+                reasoning=f"Keyword fallback: 'evaluate' found in response"
+            ).to_dict()
+        
+        # Stage 3: All parsing attempts failed
+        raise ActionParsingError(
+            f"Could not parse LLM response into any known action type. "
+            f"No JSON structure found and no keyword matches.",
+            raw_response=response[:500],  # Truncate for logging
+            cause=None
+        )
+    
+    def _action_to_enum(self, action_str: str) -> ActionType:
+        """
+        Convert a string action to an ActionType enum value.
+        
+        Provides consistent handling of action strings throughout the codebase
+        and normalizes variations (e.g., "nav" -> "navigate").
+        
+        Args:
+            action_str: The action string to convert
             
-            return None
+        Returns:
+            ActionType enum value
+        """
+        normalized = action_str.lower().strip()
+        
+        # Handle common variations and abbreviations
+        if normalized in ("nav", "navigat"):
+            return ActionType.NAVIGATE
+        elif normalized == ActionType.DONE.value:
+            return ActionType.DONE
+        elif normalized in (ActionType.SEARCH.value, "lookup"):
+            return ActionType.SEARCH
+        elif normalized == ActionType.FETCH.value:
+            return ActionType.FETCH
+        elif normalized in (ActionType.EVALUATE.value, "eval"):
+            return ActionType.EVALUATE
+        else:
+            # Return NAVIGATE as default fallback for unknown actions (backward compat)
+            return ActionType.NAVIGATE
     
     async def execute(self, prompt: str) -> AgenticFetchResult:
         """
@@ -337,9 +789,30 @@ Be strategic and try different approaches if initial searches don't work."""
                     step_result["description"] += f"\n\nLLM concluded: {action_data.get('description', '')}"
                     
                     if content:
-                        result.success = True
-                        result.content = content
-                        step_result["result"] = f"Successfully found content ({len(content)} chars)"
+                        # Validate that the content actually answers the prompt
+                        is_relevant, relevance_reasoning = await self._validate_content_relevance(
+                            prompt=prompt,
+                            fetched_content=content
+                        )
+                        
+                        # Add relevance check to step result for transparency
+                        step_result["relevance_check"] = {
+                            "is_relevant": is_relevant,
+                            "reasoning": relevance_reasoning
+                        }
+                        
+                        if is_relevant:
+                            result.success = True
+                            result.content = content
+                            step_result["result"] = f"Successfully found relevant content ({len(content)} chars)"
+                            logger.info("Content relevance validated: %s", relevance_reasoning)
+                        else:
+                            # Content is not relevant - still set success=True but log warning
+                            result.success = True  # Still return content since agent worked hard
+                            result.content = content
+                            step_result["result"] = f"Content may not fully answer prompt ({len(content)} chars) - {relevance_reasoning}"
+                            logger.warning("Content relevance check failed: %s | Prompt: %s",
+                                         relevance_reasoning, prompt[:100])
                     else:
                         step_result["result"] = "Agent concluded without finding content"
                     
@@ -358,10 +831,7 @@ Be strategic and try different approaches if initial searches don't work."""
                     step_result["url"] = f"Search: {query}"
                     
                     # Use browser search if available, fallback to regular
-                    try:
-                        from browser_use import Agent as BrowserAgent
-                        
-                        task = f"""Search for: {query}
+                    task = f"""Search for: {query}
 
 Use a web search to find relevant pages about this topic.
 
@@ -370,24 +840,43 @@ Return a JSON array of results with:
 
 Only return valid JSON array, no other text."""
 
-                        agent = BrowserAgent(task=task)
-                        search_result_raw = await agent.run()
+                    tool = BrowserTool(
+                        task_description=task,
+                        fallback_func=lambda: self._search(query)
+                    )
+                    
+                    try:
+                        browser_result = await tool.execute()
                         
-                        # Parse result
-                        try:
-                            if isinstance(search_result_raw, str):
-                                search_results = json.loads(search_result_raw)
+                        if browser_result.get("fallback_used"):
+                            # Browser failed, fallback was used
+                            search_results = browser_result.get("result", {})
+                            if "error" in search_results:
+                                step_result["result"] = f"Search error: {search_results['error']}"
                             else:
-                                search_results = search_result_raw
-                        except (json.JSONDecodeError, TypeError):
-                            logger.warning("Could not parse browser search result as JSON")
-                            # Fall back to regular search
-                            raise ImportError("Parse failed")
-                        
-                        step_result["result"] = f"Found {len(search_results) if isinstance(search_results, list) else 0} results via browser"
-                        
-                    except (ImportError, Exception) as e:
-                        logger.info("Using regular search: %s", str(e))
+                                step_result["result"] = f"Found {len(search_results.get('results', []))} results via API"
+                                search_results = search_results.get("results", [])
+                        else:
+                            # Browser succeeded
+                            parsed = browser_result.get("result")
+                            if isinstance(parsed, str):
+                                try:
+                                    search_results = json.loads(parsed)
+                                except json.JSONDecodeError:
+                                    logger.warning("Could not parse browser search result as JSON")
+                                    raise BrowserToolError("JSON parse failed")
+                            else:
+                                search_results = parsed
+                            
+                            if isinstance(search_results, list):
+                                step_result["result"] = f"Found {len(search_results)} results via browser"
+                            else:
+                                step_result["result"] = f"Found 0 results (unexpected format)"
+                                search_results = []
+                                
+                    except BrowserToolError:
+                        # Fall back to regular search if browser failed
+                        logger.info("Using regular search after BrowserTool failure")
                         search_results = await self._search(query)
                         
                         if "error" in search_results:
@@ -425,11 +914,8 @@ Only return valid JSON array, no other text."""
                     
                     step_result["url"] = url
                     
-                    # Use browser navigate if available, fallback to regular fetch  
-                    try:
-                        from browser_use import Agent as BrowserAgent
-                        
-                        task = f"""Navigate to {url} and extract the main content.
+                    # Use browser navigate if available, fallback to regular fetch
+                    task = f"""Navigate to {url} and extract the main content.
 
 Wait for dynamic content to fully load. Extract:
 1. The page title
@@ -441,40 +927,68 @@ Return a JSON object:
 
 Only return valid JSON."""
 
-                        agent = BrowserAgent(task=task)
-                        fetch_result_raw = await agent.run()
+                    tool = BrowserTool(
+                        task_description=task,
+                        fallback_func=lambda: self._fetch(url)
+                    )
+                    
+                    try:
+                        browser_result = await tool.execute()
                         
-                        # Parse result
-                        try:
-                            if isinstance(fetch_result_raw, str):
-                                fetch_data = json.loads(fetch_result_raw)
+                        if browser_result.get("fallback_used"):
+                            # Browser failed, fallback was used
+                            fetch_data = browser_result.get("result", {})
+                            
+                            if "error" in fetch_data:
+                                step_result["result"] = f"Fetch error: {fetch_data['error']}"
                             else:
-                                fetch_data = fetch_result_raw
-                        except (json.JSONDecodeError, TypeError):
-                            logger.warning("Could not parse browser fetch result as JSON")
-                            raise ImportError("Parse failed")
+                                content = fetch_data.get("content", "")
+                                step_result["result"] = f"Extracted {len(content) if content else 0} chars via HTTP"
+                                
+                                result.urls_visited.append({
+                                    "url": url,
+                                    "title": fetch_data.get("title", "")[:100] if isinstance(fetch_data, dict) else "",
+                                    "action": f"Fetched at step {step_num}"
+                                })
+                                
+                                current_context += f"\nStep {step_num} ({action}): Fetched content from '{url}'.\n"
+                                current_context += f"Extracted {len(content) if content else 0} characters.\n"
+                                
+                                if content:
+                                    current_context += f"Content preview: {content[:500]}...\n"
+                        else:
+                            # Browser succeeded
+                            parsed = browser_result.get("result")
+                            if isinstance(parsed, str):
+                                try:
+                                    fetch_data = json.loads(parsed)
+                                except json.JSONDecodeError:
+                                    logger.warning("Could not parse browser fetch result as JSON")
+                                    raise BrowserToolError("JSON parse failed")
+                            else:
+                                fetch_data = parsed
+                            
+                            content = fetch_data.get("content", "") if isinstance(fetch_data, dict) else ""
+                            step_result["result"] = f"Extracted {len(content) if content else 0} chars via browser"
+                            
+                            # Add to URLs visited
+                            result.urls_visited.append({
+                                "url": url,
+                                "title": fetch_data.get("title", "")[:100] if isinstance(fetch_data, dict) else "",
+                                "action": f"Navigated at step {step_num}"
+                            })
+                            
+                            current_context += f"\nStep {step_num} ({action}): Fetched content from '{url}'.\n"
+                            current_context += f"Extracted {len(content) if content else 0} characters.\n"
+                            
+                            # Check for relevant content
+                            if content:
+                                current_context += f"Content preview: {content[:500]}...\n"
+                                
+                    except BrowserToolError:
+                        # Fall back to regular fetch if browser failed
+                        logger.info("Using regular fetch after BrowserTool failure")
                         
-                        content = fetch_data.get("content", "")
-                        step_result["result"] = f"Extracted {len(content) if content else 0} chars via browser"
-                        
-                        # Add to URLs visited
-                        result.urls_visited.append({
-                            "url": url,
-                            "title": fetch_data.get("title", "")[:100] if isinstance(fetch_data, dict) else "",
-                            "action": f"Navigated at step {step_num}"
-                        })
-                        
-                        current_context += f"\nStep {step_num} ({action}): Fetched content from '{url}'.\n"
-                        current_context += f"Extracted {len(content) if content else 0} characters.\n"
-                        
-                        # Check for relevant content
-                        if content:
-                            current_context += f"Content preview: {content[:500]}...\n"
-                        
-                    except (ImportError, Exception) as e:
-                        logger.info("Using regular fetch: %s", str(e))
-                        
-                        # Regular HTTP fetch
                         fetch_result = await self._fetch(url)
                         
                         if "error" in fetch_result:

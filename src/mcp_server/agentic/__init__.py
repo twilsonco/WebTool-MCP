@@ -8,6 +8,23 @@ This module provides an agent that can:
 - Return found content or a detailed report of URLs visited if not found
 """
 
-from .fetch_agent import AgenticFetchAgent, AgenticFetchResult, agentic_fetch
+from .fetch_agent import (
+    ActionParsingError,
+    AgenticFetchAgent,
+    AgenticFetchResult,
+    agentic_fetch,
+)
+from .fetch_agent import ActionType, FetchStep, LLMAction
+from .fetch_agent import BrowserTool, BrowserToolError
 
-__all__ = ["AgenticFetchAgent", "AgenticFetchResult", "agentic_fetch"]
+__all__ = [
+    "ActionParsingError",
+    "AgenticFetchAgent",
+    "AgenticFetchResult",
+    "agentic_fetch",
+    "ActionType",
+    "BrowserTool",
+    "BrowserToolError",
+    "FetchStep",
+    "LLMAction"
+]
