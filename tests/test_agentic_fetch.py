@@ -93,7 +93,9 @@ class TestAgenticFetchAgent:
         
         assert result.success is True
         assert "42" in (result.content or "")
-        mock_llm.complete.assert_called_once()
+        # LLM may be called multiple times: once for action decision,
+        # and again for content relevance validation
+        assert mock_llm.complete.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_agent_falls_back_to_regular_search(self):
@@ -109,12 +111,12 @@ class TestAgenticFetchAgent:
             nonlocal call_count
             call_count += 1
             
-            if "action" not in prompt:
+            if call_count == 1:
+                # First call - return search with query
                 return '{"action": "search", "description": "Search for it", "query": "test query"}'
-            elif call_count > 1:
-                return '{"action": "done", "description": "Search complete"}'
             else:
-                return '{"action": "search", "description": "Need to search more"}'
+                # Subsequent calls - return done
+                return '{"action": "done", "description": "Search complete"}'
         
         mock_llm.complete.side_effect = llm_side_effect
         
