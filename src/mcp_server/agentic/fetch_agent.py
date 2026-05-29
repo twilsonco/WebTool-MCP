@@ -160,13 +160,14 @@ def _normalize_url(url: Optional[str]) -> str:
             if "/" in rest:
                 host_port_path = rest.split("/", 1)
                 host_port = host_port_path[0]
-                path = "/" + host_port_path[1] if len(host_port_path) > 1 else ""
+                path = "/" + host_port_path[1].lower() if len(host_port_path) > 1 else ""
             else:
                 host_port = rest
                 path = ""
             
             # Lowercase scheme and host, strip www prefix
             scheme = scheme.lower()
+            host_port = host_port.lower()
             if host_port.startswith("www."):
                 host_port = host_port[4:]
             
