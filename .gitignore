@@ -30,3 +30,4 @@ coverage.json
 /CLAUDE.md.bak
 # END Ruler Generated Files
 .opencode
+.kilo/kilo.jsonc
