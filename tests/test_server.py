@@ -2215,3 +2215,123 @@ class TestAsyncMain:
                 await async_main()
 
         mock_mcp_server.run.assert_called_once_with(mock_read, mock_write, {})
+
+
+# ---------------------------------------------------------------------------
+# Tests for uncovered lines in server.py
+# ---------------------------------------------------------------------------
+
+class TestUseLLMRefinementForTextualExtensions:
+    """Tests for line 487: use_llm_refinement = True for textual extensions (.html, .md)."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_web_content_html_enables_llm_refinement(self):
+        """Test that .html URLs get use_llm_refinement=True by default."""
+        from src.mcp_server.server import fetch_web_content
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.get.return_value = _make_html_response("<html><body>Test</body></html>")
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with patch("src.mcp_server.server._extraction_pipeline.extract_from_html") as mock_extract:
+                expected_result = ExtractionResult(content="Test content", method="trafilatura")
+                mock_extract.return_value = expected_result
+
+                result = await fetch_web_content("https://example.com/page.html", use_llm_refinement=None)
+
+                mock_extract.assert_called_once()
+                call_kwargs = mock_extract.call_args.kwargs
+                assert call_kwargs["use_llm_refinement"] is True
+
+    @pytest.mark.asyncio
+    async def test_fetch_web_content_md_enables_llm_refinement(self):
+        """Test that .md URLs get use_llm_refinement=True by default."""
+        from src.mcp_server.server import fetch_web_content
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.get.return_value = _make_html_response("# Markdown content")
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with patch("src.mcp_server.server._extraction_pipeline.extract_from_html") as mock_extract:
+                expected_result = ExtractionResult(content="Markdown content", method="trafilatura")
+                mock_extract.return_value = expected_result
+
+                result = await fetch_web_content("https://example.com/readme.md", use_llm_refinement=None)
+
+                mock_extract.assert_called_once()
+                call_kwargs = mock_extract.call_args.kwargs
+                assert call_kwargs["use_llm_refinement"] is True
+
+
+class TestSummarizeErrorPath:
+    """Tests for line 579: summarize_text returns dict with 'error' key."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_web_content_summarize_returns_error_on_llm_failure(self):
+        """Test that fetch_web_content returns error when summarize_text fails."""
+        from src.mcp_server.server import fetch_web_content
+
+        pipeline_content = "Some content to summarize"
+
+        with patch("src.mcp_server.server.httpx.AsyncClient") as mock_client:
+            instance = AsyncMock()
+            instance.get.return_value = _make_html_response("<html><body>Some content</body></html>")
+            mock_client.return_value.__aenter__.return_value = instance
+
+            with _patch_pipeline(pipeline_content):
+                with patch("src.mcp_server.server.summarize_text", new=AsyncMock(return_value={"error": "LLM provider failed"})):
+                    result = await fetch_web_content("https://example.com", summarize=True, num_words=50)
+
+        assert result["url"] == "https://example.com"
+        assert "error" in result
+        assert result["error"] == "LLM provider failed"
+
+
+class TestAgenticFetch:
+    """Tests for lines 674-683: agentic_fetch function."""
+
+    @pytest.mark.asyncio
+    async def test_agentic_fetch_creates_agent_with_defaults(self):
+        """Test that agentic_fetch creates AgenticFetchAgent with correct defaults."""
+        from src.mcp_server.server import agentic_fetch
+
+        mock_agent_instance = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {"success": True, "content": "found info"}
+        mock_agent_instance.execute.return_value = mock_result
+
+        with patch("src.mcp_server.server.AgenticFetchAgent") as MockAgent:
+            MockAgent.return_value = mock_agent_instance
+
+            result = await agentic_fetch("Find information about topic", max_steps=10)
+
+            MockAgent.assert_called_once()
+            call_kwargs = MockAgent.call_args.kwargs
+            assert call_kwargs["max_steps"] == 10
+
+        assert result["success"] is True
+
+
+class TestApiAgenticFetchEndpoint:
+    """Tests for line 711: api_agentic_fetch endpoint."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from mcp_server.server import app
+        return TestClient(app)
+
+    def test_api_agentic_fetch_delegates_to_agentic_fetch(self, client):
+        """Test that api_agentic_fetch endpoint calls agentic_fetch."""
+        from mcp_server.server import api_agentic_fetch
+
+        with patch("mcp_server.server.agentic_fetch", new=AsyncMock(return_value={"success": True})) as mock_fn:
+            with client:
+                response = client.post(
+                    "/agenticFetch",
+                    json={"prompt": "Find info about test", "max_steps": 5}
+                )
+
+            mock_fn.assert_called_once_with(prompt="Find info about test", max_steps=5)
