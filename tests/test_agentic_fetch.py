@@ -306,7 +306,7 @@ class TestBrowserSearchStringParseFailure:
             max_steps=2
         )
 
-        with patch.object(agent, '_browser_search') as mock_browser_search:
+        with patch.object(agent, '_browser_search', new_callable=AsyncMock) as mock_browser_search:
             mock_browser_search.return_value = "this is not parseable {"
 
             result = await agent.execute("test")
@@ -338,7 +338,7 @@ class TestBrowserSearchUnexpectedType:
             max_steps=2
         )
 
-        with patch.object(agent, '_browser_search') as mock_browser_search:
+        with patch.object(agent, '_browser_search', new_callable=AsyncMock) as mock_browser_search:
             mock_browser_search.return_value = {"error": "test error"}
 
             result = await agent.execute("test")
@@ -486,7 +486,7 @@ class TestSearchActionBrowserResultErrors:
             max_steps=2
         )
 
-        with patch.object(agent, '_browser_search') as mock_browser:
+        with patch.object(agent, '_browser_search', new_callable=AsyncMock) as mock_browser:
             mock_browser.return_value = {"fallback_used": True, "result": {"error": "Browser search failed"}}
 
             result = await agent.execute("test")
@@ -514,7 +514,7 @@ class TestSearchActionBrowserResultErrors:
             max_steps=2
         )
 
-        with patch.object(agent, '_browser_search') as mock_browser:
+        with patch.object(agent, '_browser_search', new_callable=AsyncMock) as mock_browser:
             mock_browser.return_value = {"fallback_used": False, "result": "not a list"}
 
             result = await agent.execute("test")
@@ -542,7 +542,7 @@ class TestSearchActionBrowserResultErrors:
             max_steps=2
         )
 
-        with patch.object(agent, '_browser_search') as mock_browser:
+        with patch.object(agent, '_browser_search', new_callable=AsyncMock) as mock_browser:
             from mcp_server.agentic.fetch_agent import BrowserToolError
             mock_browser.side_effect = BrowserToolError("Browser failed")
 
@@ -651,7 +651,7 @@ class TestAgenticFetchDefaultValueCreation:
                 mock_llm_instance = MagicMock()
                 MockLLM.return_value = mock_llm_instance
 
-                with patch("mcp_server.server.search_web") as mock_search:
+                with patch("mcp_server.server.search_web", new_callable=AsyncMock) as mock_search:
                     mock_search.side_effect = Exception("Search not available")
 
                     from mcp_server.agentic.fetch_agent import agentic_fetch
@@ -674,7 +674,7 @@ class TestAgenticFetchDefaultValueCreation:
                 MockLLM.return_value = mock_llm_instance
 
                 with patch("mcp_server.server.search_web", new=AsyncMock()):
-                    with patch("mcp_server.server.fetch_web_content") as mock_fetch:
+                    with patch("mcp_server.server.fetch_web_content", new_callable=AsyncMock) as mock_fetch:
                         mock_fetch.side_effect = Exception("Fetch not available")
 
                         from mcp_server.agentic.fetch_agent import agentic_fetch
@@ -1606,7 +1606,7 @@ class TestAgenticFetchDefaultSearchCreation:
                 mock_llm_instance = MagicMock()
                 MockLLM.return_value = mock_llm_instance
 
-                with patch("mcp_server.server.search_web") as mock_search:
+                with patch("mcp_server.server.search_web", new_callable=AsyncMock) as mock_search:
                     from mcp_server.agentic.fetch_agent import agentic_fetch
                     await agentic_fetch("test prompt")
 
@@ -1630,7 +1630,7 @@ class TestAgenticFetchDefaultFetchCreation:
                 mock_llm_instance = MagicMock()
                 MockLLM.return_value = mock_llm_instance
 
-                with patch("mcp_server.server.fetch_web_content") as mock_fetch:
+                with patch("mcp_server.server.fetch_web_content", new_callable=AsyncMock) as mock_fetch:
                     from mcp_server.agentic.fetch_agent import agentic_fetch
                     await agentic_fetch("test prompt")
 
@@ -1654,7 +1654,7 @@ class TestAgenticFetchDefaultSearchException:
                 mock_llm_instance = MagicMock()
                 MockLLM.return_value = mock_llm_instance
 
-                with patch("mcp_server.server.search_web") as mock_search:
+                with patch("mcp_server.server.search_web", new_callable=AsyncMock) as mock_search:
                     mock_search.side_effect = Exception("Search failed")
 
                     from mcp_server.agentic.fetch_agent import agentic_fetch
@@ -1680,7 +1680,7 @@ class TestAgenticFetchDefaultFetchException:
                 mock_llm_instance = MagicMock()
                 MockLLM.return_value = mock_llm_instance
 
-                with patch("mcp_server.server.fetch_web_content") as mock_fetch:
+                with patch("mcp_server.server.fetch_web_content", new_callable=AsyncMock) as mock_fetch:
                     mock_fetch.side_effect = Exception("Fetch failed")
 
                     from mcp_server.agentic.fetch_agent import agentic_fetch
@@ -1895,6 +1895,7 @@ class TestAgenticFetchDefaultFunctions:
             MockLLM.return_value = mock_llm_instance
 
             with patch("mcp_server.server.search_web", new_callable=AsyncMock) as mock_search:
+                mock_search.return_value = {"results": []}
                 from mcp_server.agentic.fetch_agent import agentic_fetch
                 await agentic_fetch("test prompt")
 
@@ -1923,6 +1924,7 @@ class TestAgenticFetchDefaultFunctions:
             MockLLM.return_value = mock_llm_instance
 
             with patch("mcp_server.server.fetch_web_content", new_callable=AsyncMock) as mock_fetch:
+                mock_fetch.return_value = {"content": "Fetched content"}
                 from mcp_server.agentic.fetch_agent import agentic_fetch
                 await agentic_fetch("test prompt")
 
@@ -1944,7 +1946,7 @@ class TestAgenticFetchDefaultFunctions:
                 mock_llm_instance = MagicMock()
                 MockLLM.return_value = mock_llm_instance
 
-                with patch("mcp_server.server.search_web") as mock_search:
+                with patch("mcp_server.server.search_web", new_callable=AsyncMock) as mock_search:
                     mock_search.side_effect = Exception("Search unavailable")
 
                     from mcp_server.agentic.fetch_agent import agentic_fetch
@@ -1968,7 +1970,7 @@ class TestAgenticFetchDefaultFunctions:
                 mock_llm_instance = MagicMock()
                 MockLLM.return_value = mock_llm_instance
 
-                with patch("mcp_server.server.fetch_web_content") as mock_fetch:
+                with patch("mcp_server.server.fetch_web_content", new_callable=AsyncMock) as mock_fetch:
                     mock_fetch.side_effect = Exception("Fetch unavailable")
 
                     from mcp_server.agentic.fetch_agent import agentic_fetch
@@ -2407,13 +2409,14 @@ class TestBrowserSearchNonListResult:
 
         agent = AgenticFetchAgent(llm_manager=mock_llm)
 
-        with patch.object(agent, '_browser_search') as mock_browser_search:
+        with patch.object(agent, '_browser_search', new_callable=AsyncMock) as mock_browser_search:
             mock_browser_search.return_value = {
                 "success": True,
                 "result": '{"title": "Not a list", "url": "https://example.com"}'
             }
 
-            with patch.object(agent, '_search') as mock_search:
+            with patch.object(agent, '_search', new_callable=AsyncMock) as mock_search:
+                mock_search.return_value = {"results": []}
                 result = await agent.execute("test query")
                 assert len(result.steps_taken) >= 1
 

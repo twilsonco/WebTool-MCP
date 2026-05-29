@@ -589,7 +589,7 @@ When you cannot find what was requested after multiple attempts:
         
         tool = BrowserTool(
             task_description=task,
-            fallback_func=lambda: self._search(query)
+            fallback_func=lambda q=query: self._search(q)
         )
         
         try:
