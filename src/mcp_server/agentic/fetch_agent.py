@@ -186,12 +186,13 @@ def _normalize_url(url: Optional[str]) -> str:
 
 class ActionType(str, Enum):
     """Enumeration of valid action types for the agent."""
-    
+
     SEARCH = "search"
     FETCH = "fetch"
     NAVIGATE = "navigate"
     EVALUATE = "evaluate"
     DONE = "done"
+    SCREENSHOT = "screenshot"
 
 
 class ActionParsingError(Exception):
@@ -476,6 +477,7 @@ Your capabilities:
 2. Fetch and extract content from URLs using fetch_web_content
 3. Navigate to URLs directly
 4. Evaluate whether found content matches the user's request
+5. Capture screenshots of pages for visual analysis (CAPTCHAs, interactive UIs, etc.)
 
 Your approach:
 1. First understand what information the user is looking for
@@ -486,14 +488,19 @@ Your approach:
 6. If not found, try alternative searches or URLs
 7. Report back with findings or detailed report of what was tried
 
+Vision capabilities:
+- You can request screenshots of pages when visual analysis is needed
+- Screenshots are passed as base64 images for your analysis
+- Useful for CAPTCHAs, visual elements, interactive forms, or when text extraction fails
+
 Always be thorough but efficient. Try to find the most relevant and authoritative sources.
 
 Output your next action as a JSON object with:
 {
-  "action": "search|fetch|navigate|evaluate|done",
+  "action": "search|fetch|navigate|evaluate|screenshot|done",
   "description": "What you're doing and why",
   "query": "search query (for search action)",
-  "url": "URL to fetch/navigate (for fetch/navigate actions)"
+  "url": "URL to fetch/navigate/screenshot"
 }
 
 When you have found content that satisfies the user's request, output:
@@ -517,11 +524,12 @@ When you cannot find what was requested after multiple attempts:
         search_func: Optional[SearchFunc] = None,
         fetch_func: Optional[FetchFunc] = None,
         max_steps: int = 10,
-        stream_callback: Optional[StreamCallback] = None
+        stream_callback: Optional[StreamCallback] = None,
+        vision_enabled: bool = False
     ):
         """
         Initialize the agent.
-        
+
         Args:
             llm_manager: LLMManager instance for AI decision-making (must implement LLMProvider protocol)
             extraction_pipeline: ContentExtractionPipeline instance for content extraction
@@ -534,6 +542,7 @@ When you cannot find what was requested after multiple attempts:
             stream_callback: Optional async callback for streaming step progress updates.
                 Called after each step completes with (step_num, action, description, result).
                 Must implement StreamCallback protocol if provided.
+            vision_enabled: Enable screenshot capture and vision-based analysis (default False).
         """
         self._llm_manager = llm_manager
         self._extraction_pipeline = extraction_pipeline
@@ -541,11 +550,16 @@ When you cannot find what was requested after multiple attempts:
         self._fetch_func = fetch_func
         self.max_steps = max_steps
         self._stream_callback = stream_callback
-        
+        self.vision_enabled = vision_enabled
+
+        # Vision capability detection (checked on first screenshot request)
+        self._vision_checked = False
+        self._vision_supported = False
+
         # Step budget tracking per action type (initialized in execute())
         self._search_steps = 0
         self._fetch_steps = 0
-        
+
         # Add current UTC-0 date/time in YYYY-MM-DD HH:MM:SS format to system prompt for better context in decision-making
         # Initialize as instance attribute to avoid thread-safety issues with class-level mutation
         current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -624,7 +638,7 @@ When you cannot find what was requested after multiple attempts:
     async def _browser_navigate_and_extract(self, url: str) -> Dict[str, Any]:
         """
         Navigate to a URL and extract content using browser-use.
-        
+
         Falls back to regular fetch if browser-use is not installed or fails.
         """
         task = f"""Navigate to {url} and extract the main content.
@@ -641,38 +655,93 @@ Return a JSON object with:
             task_description=task,
             fallback_func=lambda: self._fetch(url)
         )
-        
+
         try:
             result = await tool.execute()
-            
+
             if result.get("fallback_used"):
                 # Browser failed, fallback was used - return that result
                 return result.get("result", {"error": "Fallback failed"})
-            
+
             parsed = result.get("result")
-            
+
             # Validate we got a dict (page data)
             if isinstance(parsed, str):
                 try:
                     parsed = json.loads(parsed)
                 except json.JSONDecodeError:
                     return {"error": f"Browser navigate failed to parse: {parsed}"}
-            
+
             if isinstance(parsed, dict):
                 # Ensure URL is set in result
                 if "url" not in parsed:
                     parsed["url"] = url
                 return parsed
-            
+
             # If we got a list (unexpected)
             if isinstance(parsed, list):
                 return {"error": f"Browser navigate returned unexpected list"}
-            
+
             return {"error": f"Unexpected browser navigate result type: {type(parsed)}"}
-            
+
         except BrowserToolError as e:
             logger.warning("Browser navigate failed: %s, falling back to regular fetch", str(e))
             return await self._fetch(url)
+
+    async def _capture_screenshot(self, url: str) -> Optional[str]:
+        """
+        Capture a screenshot of the given URL using Playwright.
+
+        Returns:
+            Base64-encoded PNG image, or None on failure.
+        """
+        if self._extraction_pipeline is None:
+            logger.warning("No extraction pipeline configured for screenshots")
+            return None
+
+        try:
+            pipeline = self._extraction_pipeline
+            if hasattr(pipeline, 'capture_screenshot'):
+                return await pipeline.capture_screenshot(url)
+            else:
+                logger.warning("Extraction pipeline does not support screenshots")
+                return None
+        except Exception as e:
+            logger.warning("Screenshot capture failed: %s", str(e))
+            return None
+
+    async def _check_vision_support(self) -> bool:
+        """
+        Check if the LLM supports vision capabilities.
+
+        Returns True if vision is supported, False otherwise.
+        """
+        if self._vision_checked:
+            return self._vision_supported
+
+        self._vision_checked = True
+
+        if not self.vision_enabled:
+            logger.info("Vision disabled by configuration")
+            return False
+
+        if self._llm_manager is None:
+            logger.warning("No LLM manager for vision check")
+            return False
+
+        try:
+            test_image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            await self._llm_manager.complete_with_images(
+                prompt="Is this a valid test image? Reply with just YES or NO.",
+                images=[test_image]
+            )
+            self._vision_supported = True
+            logger.info("Vision capability confirmed")
+            return True
+        except Exception as e:
+            self._vision_supported = False
+            logger.warning("Vision capability check failed: %s", str(e))
+            return False
     
     async def _validate_content_relevance(
         self,
@@ -1207,7 +1276,7 @@ Only return valid JSON."""
                 
                 elif action == "evaluate":
                     current_context += f"\nStep {step_num} (evaluate): LLM evaluating progress and content quality.\n"
-                    
+
                     # Try to evaluate the most recently fetched content for relevance
                     if result.urls_visited:
                         last_url_entry = result.urls_visited[-1]
@@ -1218,10 +1287,67 @@ Only return valid JSON."""
                         current_context += f"Total steps taken: {step_num - 1}\n"
                     else:
                         current_context += "No content fetched yet. Consider searching or fetching a URL.\n"
-                    
+
                     # Add evaluation result to context for LLM's next decision
                     current_context += f"Evaluation: {action_data.get('description', '')}\n"
-                    
+
+                elif action == "screenshot":
+                    url = action_data.get("url", "")
+
+                    if not url:
+                        current_context += f"\nStep {step_num}: Screenshot action but no URL provided.\n"
+                        step_result["result"] = "No URL provided for screenshot"
+                        result.steps_taken.append(step_result)
+                        continue
+
+                    step_result["url"] = url
+                    current_context += f"\nStep {step_num} (screenshot): Capturing screenshot of '{url}'.\n"
+
+                    # Check vision support on first screenshot request
+                    if not self._vision_checked:
+                        await self._check_vision_support()
+
+                    if not self.vision_enabled or not self._vision_supported:
+                        current_context += "Vision is not available. Cannot capture screenshots.\n"
+                        step_result["result"] = "Screenshot skipped: vision not supported"
+                    else:
+                        screenshot_base64 = await self._capture_screenshot(url)
+
+                        if screenshot_base64 is None:
+                            current_context += "Screenshot capture failed.\n"
+                            step_result["result"] = "Screenshot capture failed"
+                        else:
+                            image_data_uri = f"data:image/png;base64,{screenshot_base64}"
+
+                            vision_prompt = (
+                                f"Analyze this screenshot of '{url}'.\n"
+                                f"User's request: {prompt}\n\n"
+                                "Describe what you see in the screenshot, focusing on "
+                                "any content relevant to the user's request. "
+                                "If there is a CAPTCHA, visual form, or interactive element, describe it."
+                            )
+
+                            try:
+                                vision_response = await self._llm_manager.complete_with_images(
+                                    prompt=vision_prompt,
+                                    system_prompt="You are analyzing a webpage screenshot.",
+                                    images=[image_data_uri]
+                                )
+
+                                current_context += f"\nScreenshot analysis:\n{vision_response[:500]}\n"
+                                step_result["result"] = f"Screenshot captured and analyzed ({len(screenshot_base64)} base64 chars)"
+
+                                # Add screenshot URL to visited
+                                result.urls_visited.append({
+                                    "url": url,
+                                    "title": f"Screenshot at step {step_num}",
+                                    "action": f"Captured screenshot for visual analysis"
+                                })
+                            except Exception as e:
+                                logger.warning("Vision analysis failed: %s", str(e))
+                                current_context += f"Screenshot captured but vision analysis failed: {str(e)}\n"
+                                step_result["result"] = f"Screenshot captured but analysis failed"
+
                 else:
                     current_context += f"\nStep {step_num}: Unknown action '{action}'.\n"
                     
@@ -1269,11 +1395,12 @@ async def agentic_fetch(
     extraction_pipeline: Optional[ExtractionPipeline] = None,
     search_func: Optional[SearchFunc] = None,
     fetch_func: Optional[FetchFunc] = None,
-    stream_callback: Optional[StreamCallback] = None
+    stream_callback: Optional[StreamCallback] = None,
+    vision_enabled: bool = False
 ) -> Dict[str, Any]:
     """
     Convenience function to perform agentic fetch.
-    
+
     Args:
         prompt: Natural language request
         max_steps: Maximum agent steps (default 10)
@@ -1288,22 +1415,23 @@ async def agentic_fetch(
         stream_callback: Optional async callback for streaming step progress updates.
             Called after each step completes with (step_num, action, description, result).
             Must implement StreamCallback protocol if provided.
-        
+        vision_enabled: Enable screenshot capture and vision-based analysis (default False).
+
     Returns:
         Dict with agentic fetch result
-        
+
     Streaming:
         When stream_callback is provided, it will be called after each agent step
         with the following information:
         - step_num: The current step number (1-indexed)
-        - action: The type of action taken (search, fetch, navigate, evaluate, done)
+        - action: The type of action taken (search, fetch, navigate, evaluate, screenshot, done)
         - description: Human-readable explanation of what was done
         - result: Optional result string with outcome details
-        
+
     Example:
         async def my_callback(step_num, action, description, result):
             print(f"Step {step_num}: {action} - {description}")
-        
+
         result = await agentic_fetch(
             prompt="Find information about Python",
             stream_callback=my_callback
@@ -1311,13 +1439,13 @@ async def agentic_fetch(
     """
     # Import here to avoid circular imports at module level
     from ..llm import LLMManager as LLMImport
-    
+
     if llm_manager is None:
         try:
             llm_manager = LLMImport()
         except Exception as e:
             logger.error("Could not create LLM manager: %s", str(e))
-    
+
     # Create default search/fetch functions if not provided
     if search_func is None:
         async def _default_search(query, num_results=10):
@@ -1327,9 +1455,9 @@ async def agentic_fetch(
             except Exception as e:
                 logger.error("Default search failed: %s", str(e))
                 return {"error": f"Search not available: {str(e)}"}
-        
+
         search_func = _default_search
-    
+
     if fetch_func is None:
         async def _default_fetch(url):
             try:
@@ -1338,17 +1466,18 @@ async def agentic_fetch(
             except Exception as e:
                 logger.error("Default fetch failed: %s", str(e))
                 return {"error": f"Fetch not available: {str(e)}"}
-        
+
         fetch_func = _default_fetch
-    
+
     agent = AgenticFetchAgent(
         llm_manager=llm_manager,
         extraction_pipeline=extraction_pipeline,
         search_func=search_func,
         fetch_func=fetch_func,
         max_steps=max_steps,
-        stream_callback=stream_callback
+        stream_callback=stream_callback,
+        vision_enabled=vision_enabled
     )
-    
+
     result = await agent.execute(prompt)
     return result.to_dict()

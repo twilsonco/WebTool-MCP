@@ -683,6 +683,25 @@ async def agentic_fetch(
     return result.to_dict()
 
 
+async def capture_screenshot_endpoint(url: str) -> dict:
+    """
+    Capture a screenshot of a URL using Playwright.
+
+    Args:
+        url: The URL to capture
+
+    Returns:
+        Dict with success status, image_base64, and url
+    """
+    try:
+        screenshot = await _extraction_pipeline.capture_screenshot(url)
+        if screenshot is None:
+            return {"success": False, "error": "Failed to capture screenshot", "url": url}
+        return {"success": True, "image_base64": screenshot, "url": url}
+    except Exception as e:
+        return {"success": False, "error": str(e), "url": url}
+
+
 @app.post(
     "/agenticFetch",
     operation_id="agenticFetch",
@@ -709,6 +728,28 @@ async def api_agentic_fetch(
         URLs visited list, and detailed step-by-step actions taken.
     """
     return await agentic_fetch(prompt=prompt, max_steps=max_steps)
+
+
+@app.post(
+    "/screenshot",
+    operation_id="captureScreenshot",
+    tags=["mcp-tool"],
+    summary="Capture a screenshot of a URL using Playwright",
+    dependencies=[Depends(_require_auth)],
+)
+async def api_capture_screenshot(
+    url: Annotated[str, Body(description="The URL to capture (required)")],
+) -> dict:
+    """
+    Capture a screenshot of a URL using Playwright.
+
+    Returns base64-encoded PNG image for analysis by vision-capable LLMs.
+    Useful for CAPTCHAs, visual web elements, and interactive forms.
+
+    Returns:
+        JSON with success status, image_base64 (PNG), and url.
+    """
+    return await capture_screenshot_endpoint(url=url)
 
 
 @app.get("/")

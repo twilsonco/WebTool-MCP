@@ -5,7 +5,7 @@ Supports Ollama, LM Studio, local APIs, and cloud providers with
 OpenAI-compatible chat completions interface.
 """
 
-from typing import Optional
+from typing import List, Optional
 import httpx
 
 from .base import LLMProvider, LLMProviderConfig
@@ -122,3 +122,59 @@ class OpenAICompatibleProvider(LLMProvider):
         if self._config.api_key:
             headers["Authorization"] = f"Bearer {self._config.api_key}"
         return headers
+
+    async def complete_with_images(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        images: Optional[List[str]] = None
+    ) -> str:
+        """
+        Send a completion request with optional image inputs.
+
+        Args:
+            prompt: The user message content.
+            system_prompt: Optional system message for context.
+            images: List of base64 image data URIs (data:image/png;base64,...).
+
+        Returns:
+            The assistant's response content as a string.
+
+        Raises:
+            LLMProviderError: If the request fails for any reason.
+        """
+        content = [{"type": "text", "text": prompt}]
+
+        if images:
+            for img in images:
+                content.append({"type": "image_url", "image_url": {"url": img}})
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": content})
+
+        headers = self._headers()
+        headers["Content-Type"] = "application/json"
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{self._config.base_url}/chat/completions",
+                    json={
+                        "model": self._config.model,
+                        "messages": messages
+                    },
+                    headers=headers
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            return data["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as e:
+            raise LLMProviderError(
+                self._config.name,
+                f"API error {e.response.status_code}: {e.response.text[:200]}",
+                status_code=e.response.status_code
+            )
+        except Exception as e:
+            raise LLMProviderError(self._config.name, f"Inference failed: {str(e)}")

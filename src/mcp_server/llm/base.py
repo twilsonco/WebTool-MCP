@@ -4,7 +4,7 @@ Abstract base classes for LLM providers.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 
 @dataclass(frozen=True)
@@ -69,6 +69,29 @@ class LLMProvider(ABC):
         Args:
             prompt: The user message content.
             system_prompt: Optional system message for context.
+
+        Returns:
+            The assistant's response content as a string.
+
+        Raises:
+            LLMProviderError: If the request fails for any reason.
+        """
+        pass
+
+    @abstractmethod
+    async def complete_with_images(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        images: Optional[List[str]] = None
+    ) -> str:  # pragma: no cover
+        """
+        Send a completion request with optional image inputs.
+
+        Args:
+            prompt: The user message content.
+            system_prompt: Optional system message for context.
+            images: List of base64 image data URIs (data:image/png;base64,...).
 
         Returns:
             The assistant's response content as a string.
