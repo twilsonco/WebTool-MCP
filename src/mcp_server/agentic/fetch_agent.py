@@ -13,7 +13,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Protocol, Union, runtime_checkable
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -22,6 +22,114 @@ logger = logging.getLogger(__name__)
 
 # Content truncation constant for previews
 CONTENT_PREVIEW_MAX_LENGTH = 500
+
+
+@runtime_checkable
+class LLMProvider(Protocol):
+    """
+    Protocol for LLM providers that can complete prompts.
+    
+    An async callable that takes a prompt and optional system prompt,
+    returning the LLM's response as a string.
+    
+    Example:
+        class MyLLMManager:
+            async def complete(self, prompt: str, system_prompt: Optional[str] = None) -> Optional[str]:
+                # Implementation
+                ...
+    """
+    
+    async def complete(self, prompt: str, system_prompt: Optional[str] = None) -> Optional[str]:
+        """Generate a completion for the given prompt."""
+        ...
+
+
+@runtime_checkable
+class ExtractionPipeline(Protocol):
+    """
+    Protocol for content extraction pipelines.
+    
+    A callable that takes a URL and optional prompt, returning
+    extracted content as a dictionary.
+    
+    Example:
+        class MyExtractionPipeline:
+            def extract(self, url: str, prompt: Optional[str] = None) -> Dict[str, Any]:
+                # Implementation
+                ...
+    """
+    
+    def extract(self, url: str, prompt: Optional[str] = None) -> Dict[str, Any]:
+        """Extract content from the given URL."""
+        ...
+
+
+@runtime_checkable
+class SearchFunc(Protocol):
+    """
+    Protocol for async search functions.
+    
+    An async callable that takes a query string and number of results,
+    returning search results as a dictionary.
+    
+    Example:
+        async def my_search(query: str, num_results: int) -> Dict[str, Any]:
+            # Implementation
+            ...
+    """
+    
+    async def __call__(self, query: str, num_results: int) -> Dict[str, Any]:
+        """Execute a web search and return results."""
+        ...
+
+
+@runtime_checkable
+class FetchFunc(Protocol):
+    """
+    Protocol for async fetch functions.
+    
+    An async callable that takes a URL string and returns
+    fetched content as a dictionary.
+    
+    Example:
+        async def my_fetch(url: str) -> Dict[str, Any]:
+            # Implementation
+            ...
+    """
+    
+    async def __call__(self, url: str) -> Dict[str, Any]:
+        """Fetch content from the given URL."""
+        ...
+
+
+@runtime_checkable
+class StreamCallback(Protocol):
+    """
+    Protocol for streaming callbacks that receive step progress updates.
+    
+    An async callable that receives information about each agent step
+    as it completes, allowing users to see progress within the execution.
+    
+    Example:
+        async def my_callback(step_num: int, action: str, description: str, result: Optional[str]) -> None:
+            print(f"Step {step_num}: {action} - {description}")
+    
+    Args:
+        step_num: The current step number (1-indexed)
+        action: The type of action taken (search, fetch, navigate, evaluate, done)
+        description: Human-readable explanation of what was done
+        result: Optional result string with outcome details
+    """
+    
+    async def __call__(
+        self,
+        step_num: int,
+        action: str,
+        description: str,
+        result: Optional[str]
+    ) -> None:
+        """Receive a step completion notification."""
+        ...
 
 
 def _normalize_url(url: Optional[str]) -> str:
@@ -403,27 +511,35 @@ When you cannot find what was requested after multiple attempts:
     
     def __init__(
         self,
-        llm_manager: Any = None,
-        extraction_pipeline: Any = None,
-        search_func: Optional[Callable[[str, int], Any]] = None,
-        fetch_func: Optional[Callable[[str], Any]] = None,
-        max_steps: int = 10
+        llm_manager: Optional[LLMProvider] = None,
+        extraction_pipeline: Optional[ExtractionPipeline] = None,
+        search_func: Optional[SearchFunc] = None,
+        fetch_func: Optional[FetchFunc] = None,
+        max_steps: int = 10,
+        stream_callback: Optional[StreamCallback] = None
     ):
         """
         Initialize the agent.
         
         Args:
-            llm_manager: LLMManager instance for AI decision-making
-            extraction_pipeline: ContentExtractionPipeline instance  
-            search_func: Async function for web searches (query, num_results) -> dict
-            fetch_func: Async function for content fetching (url) -> dict
+            llm_manager: LLMManager instance for AI decision-making (must implement LLMProvider protocol)
+            extraction_pipeline: ContentExtractionPipeline instance for content extraction
+                (must implement ExtractionPipeline protocol)
+            search_func: Async function for web searches with signature (query, num_results) -> dict
+                (must implement SearchFunc protocol)
+            fetch_func: Async function for content fetching with signature (url) -> dict
+                (must implement FetchFunc protocol)
             max_steps: Maximum number of agent steps before giving up
+            stream_callback: Optional async callback for streaming step progress updates.
+                Called after each step completes with (step_num, action, description, result).
+                Must implement StreamCallback protocol if provided.
         """
         self._llm_manager = llm_manager
         self._extraction_pipeline = extraction_pipeline
         self._search_func = search_func
         self._fetch_func = fetch_func
         self.max_steps = max_steps
+        self._stream_callback = stream_callback
         
         # Step budget tracking per action type (initialized in execute())
         self._search_steps = 0
@@ -1114,6 +1230,17 @@ Only return valid JSON."""
                 step_result["result"] = f"Error: {str(e)}"
             
             result.steps_taken.append(step_result)
+            
+            if self._stream_callback is not None:
+                try:
+                    await self._stream_callback(
+                        step_num=step_result.get("step", step_num),
+                        action=step_result.get("action", ""),
+                        description=step_result.get("description", ""),
+                        result=step_result.get("result")
+                    )
+                except Exception as e:
+                    logger.warning("Stream callback failed: %s", str(e))
         
         # Check if we ran out of steps
         if not result.success:
@@ -1137,10 +1264,11 @@ Only return valid JSON."""
 async def agentic_fetch(
     prompt: str,
     max_steps: int = 10,
-    llm_manager: Any = None,
-    extraction_pipeline: Any = None,
-    search_func: Optional[Callable[[str, int], Any]] = None,
-    fetch_func: Optional[Callable[[str], Any]] = None
+    llm_manager: Optional[LLMProvider] = None,
+    extraction_pipeline: Optional[ExtractionPipeline] = None,
+    search_func: Optional[SearchFunc] = None,
+    fetch_func: Optional[FetchFunc] = None,
+    stream_callback: Optional[StreamCallback] = None
 ) -> Dict[str, Any]:
     """
     Convenience function to perform agentic fetch.
@@ -1148,13 +1276,37 @@ async def agentic_fetch(
     Args:
         prompt: Natural language request
         max_steps: Maximum agent steps (default 10)
-        llm_manager: LLMManager instance
-        extraction_pipeline: ContentExtractionPipeline instance
-        search_func: Async function for web searches (query, num_results) -> dict
-        fetch_func: Async function for content fetching (url) -> dict
+        llm_manager: LLMManager instance for AI decision-making
+            (must implement LLMProvider protocol)
+        extraction_pipeline: ContentExtractionPipeline instance for content extraction
+            (must implement ExtractionPipeline protocol)
+        search_func: Async function for web searches with signature (query, num_results) -> dict
+            (must implement SearchFunc protocol)
+        fetch_func: Async function for content fetching with signature (url) -> dict
+            (must implement FetchFunc protocol)
+        stream_callback: Optional async callback for streaming step progress updates.
+            Called after each step completes with (step_num, action, description, result).
+            Must implement StreamCallback protocol if provided.
         
     Returns:
         Dict with agentic fetch result
+        
+    Streaming:
+        When stream_callback is provided, it will be called after each agent step
+        with the following information:
+        - step_num: The current step number (1-indexed)
+        - action: The type of action taken (search, fetch, navigate, evaluate, done)
+        - description: Human-readable explanation of what was done
+        - result: Optional result string with outcome details
+        
+    Example:
+        async def my_callback(step_num, action, description, result):
+            print(f"Step {step_num}: {action} - {description}")
+        
+        result = await agentic_fetch(
+            prompt="Find information about Python",
+            stream_callback=my_callback
+        )
     """
     # Import here to avoid circular imports at module level
     from ..llm import LLMManager as LLMImport
@@ -1193,7 +1345,8 @@ async def agentic_fetch(
         extraction_pipeline=extraction_pipeline,
         search_func=search_func,
         fetch_func=fetch_func,
-        max_steps=max_steps
+        max_steps=max_steps,
+        stream_callback=stream_callback
     )
     
     result = await agent.execute(prompt)
