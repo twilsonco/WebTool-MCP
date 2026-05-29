@@ -336,6 +336,66 @@ Or using process-based communication, without needing to run the server:
 
 After editing the configuration, restart Claude Desktop to load the new MCP server.
 
+### Kilo Code
+
+To use WebTool-MCP with [Kilo Code](https://kilo.ai), add the server configuration to your `kilo.jsonc` file. Kilo Code supports both local (STDIO) and remote (HTTP/SSE) server connections.
+
+**Local (STDIO) — requires the server to be started separately:**
+
+```json
+{
+  "mcp": {
+    "webtool": {
+      "type": "local",
+      "command": ["uv", "run", "--directory", "/path/to/WebTool-MCP", "python", "src/mcp_server/server.py"],
+      "environment": {
+        "LLM_PROVIDER_1_BASE_URL": "http://localhost:11434/v1",
+        "LLM_PROVIDER_1_MODEL": "llama3.2"
+      },
+      "enabled": true,
+      "timeout": 10000
+    }
+  }
+}
+```
+
+*Can also use `.env` file stored in the specified `--directory` for environment variables instead of the `environment` field.*
+
+**Remote (HTTP/SSE) — server must already be running:**
+
+```json
+{
+  "mcp": {
+    "webtool": {
+      "type": "remote",
+      "url": "http://localhost:8000/mcp",
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}
+```
+
+If the server requires Bearer token authentication (when `MCP_API_KEYS` is set), include headers:
+
+```json
+{
+  "mcp": {
+    "webtool": {
+      "type": "remote",
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer your-api-key"
+      },
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}
+```
+
+Remote servers support OAuth 2.0 authentication automatically if the server offers it; disable with `"oauth": false`.
+
 ## Testing
 
 Run the test suite with pytest:
