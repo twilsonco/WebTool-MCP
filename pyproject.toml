@@ -42,6 +42,7 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 filterwarnings = [
     "ignore:.*'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
+    "ignore:The `__get_pydantic_core_schema__` method of the `BaseModel` class is deprecated",
 ]
 
 [dependency-groups]
