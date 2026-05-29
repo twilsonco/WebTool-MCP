@@ -40,6 +40,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+filterwarnings = [
+    "ignore:.*'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
+]
 
 [dependency-groups]
 dev = [
