@@ -317,7 +317,7 @@ async def example_3_streaming():
         if result:
             print(f"           -> {result[:100]}...")
 
-    prompt = "What is the capital of France?"
+    prompt = "What is the latest on updated Apple TV hardware?"
 
     print(f"\nPrompt: {prompt}")
     print("\nStreaming progress:")

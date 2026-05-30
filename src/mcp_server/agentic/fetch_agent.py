@@ -952,6 +952,18 @@ YES - [brief reason]  or  NO - [brief reason]
             # Return NAVIGATE as default fallback for unknown actions (backward compat)
             return ActionType.NAVIGATE
     
+    async def log_stream_callback(self, step_result, step_num):
+        if self._stream_callback is not None:
+            try:
+                await self._stream_callback(
+                    step_num=step_result.get("step", step_num),
+                    action="done",
+                    description=step_result.get("description", ""),
+                result=step_result.get("result")
+            )
+            except Exception as e:
+                logger.warning("Stream callback failed: %s", str(e))
+    
     async def execute(self, prompt: str) -> AgenticFetchResult:
         """
         Execute the agent to find information based on a natural language prompt.
@@ -1066,6 +1078,7 @@ Be strategic and try different approaches if initial searches don't work."""
                         step_result["result"] = "Agent concluded without finding content"
                     
                     result.steps_taken.append(step_result)
+
                     break
                     
                 elif action == "search":
@@ -1350,24 +1363,16 @@ Only return valid JSON."""
 
                 else:
                     current_context += f"\nStep {step_num}: Unknown action '{action}'.\n"
-                    
+
             except Exception as e:
                 logger.error("Error executing step %d: %s", step_num, str(e))
                 current_context += f"\nStep {step_num}: Error executing action: {str(e)}\n"
                 step_result["result"] = f"Error: {str(e)}"
             
-            result.steps_taken.append(step_result)
+            finally:
+                await self.log_stream_callback(step_result, step_num)
             
-            if self._stream_callback is not None:
-                try:
-                    await self._stream_callback(
-                        step_num=step_result.get("step", step_num),
-                        action=step_result.get("action", ""),
-                        description=step_result.get("description", ""),
-                        result=step_result.get("result")
-                    )
-                except Exception as e:
-                    logger.warning("Stream callback failed: %s", str(e))
+            result.steps_taken.append(step_result)
         
         # Check if we ran out of steps
         if not result.success:
