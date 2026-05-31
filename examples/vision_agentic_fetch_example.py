@@ -55,7 +55,7 @@ project_root = Path(__file__).parent.parent
 load_dotenv(project_root / ".env", override=True)
 
 from mcp_server.agentic import agentic_fetch
-from src.mcp_server.extraction.pipeline import ContentExtractionPipeline
+from mcp_server.extraction.pipeline import ContentExtractionPipeline
 
 
 def parse_args():
@@ -94,7 +94,7 @@ async def example_vision_agentic_fetch():
     print("EXAMPLE: Vision Agentic Fetch")
     print("=" * 60)
 
-    prompt = "Describe the layout and main elements of Hacker News"
+    prompt = "Describe the layout and main elements of the Greyhound Bus Museum website. Describe the colors, images, and structure you see in the screenshots."
     print(f"\nPrompt: {prompt}")
 
     result = await agentic_fetch(
