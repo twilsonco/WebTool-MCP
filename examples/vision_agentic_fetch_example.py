@@ -97,10 +97,14 @@ async def example_vision_agentic_fetch():
     prompt = "Describe the layout and main elements of the Greyhound Bus Museum website. Describe the colors, images, and structure you see in the screenshots."
     print(f"\nPrompt: {prompt}")
 
+    # Create extraction pipeline for screenshot capture
+    pipeline = ContentExtractionPipeline()
+
     result = await agentic_fetch(
         prompt=prompt,
         vision_enabled=True,
-        max_steps=10
+        max_steps=10,
+        extraction_pipeline=pipeline
     )
 
     print_example_result(result)
