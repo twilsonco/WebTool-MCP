@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-searchWeb examples - Demonstrates usage of the searchWeb MCP tool.
+search examples - Demonstrates usage of the search MCP tool.
 This script imports and calls the actual implementation directly.
 Loads API keys from .env in project root.
 
@@ -50,7 +50,7 @@ def dry_run_search(query: str, provider: str | None = None, title: str | None = 
         params["provider"] = provider
     extras = {k: v for k, v in kwargs.items() if v}
     params.update(extras)
-    print(f"  Would execute searchWeb() with: {json.dumps(params)}")
+    print(f"  Would execute search() with: {json.dumps(params)}")
 
 
 def print_results(result: dict):
@@ -366,7 +366,7 @@ def parse_example_selection(selection: str | None) -> set[int]:
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="searchWeb examples demonstrating various providers and features.",
+        description="search examples demonstrating various providers and features.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -409,7 +409,7 @@ Example functions (numbered for selection):
 
 
 async def main(selected_examples: set[int] | None = None):
-    """Run searchWeb examples.
+    """Run search examples.
 
     Args:
         selected_examples: Set of example numbers to run. If None or empty, run all.
@@ -435,7 +435,7 @@ async def main(selected_examples: set[int] | None = None):
         examples_to_run = all_examples
 
     print("\n" + "#" * 60)
-    print("# searchWeb Examples (using real implementation)")
+    print("# search Examples (using real implementation)")
     if selected_examples:
         example_nums = sorted(selected_examples)
         print(f"# Running examples: {example_nums}")

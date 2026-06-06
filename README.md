@@ -17,7 +17,7 @@ The server is built with:
 
 ## Tools/Functions
 
-### fetchWebContent
+### fetch
 Fetch URLs and convert content to Markdown format with optional filtering, pagination, and LLM-powered summarization.
 
 Uses a **multi-tiered extraction pipeline** to maximise content quality:
@@ -34,7 +34,7 @@ Other capabilities:
 - Optional extraction of links from fetched pages
 - **Summarization** — set `summarize=true` to get an LLM-generated summary instead of raw content
 
-### searchWeb
+### search
 Multi-provider web search with support for:
 
 - **[Miklium](https://github.com/MIKLIUM-Team/MIKLIUM/blob/main/api/search/README.md)** - Free provider, no API key required (always available, but subject to rate limits and potential downtime)
@@ -47,8 +47,8 @@ Features include automatic failover between providers and date filtering (result
 ## Prerequisites
 
 - Python 3.10 or higher
-- For **searchWeb**: Works out-of-the-box with Miklium (no API key required). Optional: add TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY + GOOGLE_SEARCH_ENGINE_ID for additional providers
-- For **fetchWebContent with summarize=true**: An OpenAI-compatible endpoint (Ollama, OpenWebUI, etc.)
+- For **search**: Works out-of-the-box with Miklium (no API key required). Optional: add TAVILY_API_KEY, BRAVE_API_KEY, or GOOGLE_API_KEY + GOOGLE_SEARCH_ENGINE_ID for additional providers
+- For **fetch with summarize=true**: An OpenAI-compatible endpoint (Ollama, OpenWebUI, etc.)
 
 ## Installation
 
@@ -74,7 +74,7 @@ cp .env.example .env
 
 WebTool uses environment variables for configuration. Copy `.env.example` to `.env` and set the appropriate values.
 
-### LLM Configuration (for fetchWebContent summarize)
+### LLM Configuration (for fetch summarize)
 
 WebTool supports multiple LLM providers with automatic failover. Providers are tried in order (1, 2, 3...) - if the primary fails, the next provider is used automatically.
 
@@ -93,7 +93,7 @@ WebTool supports multiple LLM providers with automatic failover. Providers are t
 
 *Only required if configuring failover support.
 
-### Search Provider Configuration (for searchWeb)
+### Search Provider Configuration (for search)
 
 Web search works out-of-the-box with **Miklium** (no API key required). Additional providers can be configured for redundancy.
 
@@ -151,16 +151,16 @@ The project includes example scripts demonstrating each tool:
 # Run all examples
 uv run python examples/run_examples.py all
 
-# Run only fetchWebContent examples (includes summarize via summarize=true)
+# Run only fetch examples (includes summarize via summarize=true)
 uv run python examples/run_examples.py fetch
 
-# Run only searchWeb examples
+# Run only search examples
 uv run python examples/run_examples.py search
 ```
 
 ### Tool Reference
 
-#### fetchWebContent
+#### fetch
 
 Fetch a URL and convert to Markdown.
 
@@ -213,7 +213,7 @@ curl -X POST http://localhost:8000/mcp/messages/ \
     "id": 2,
     "method": "tools/call",
     "params": {
-      "name": "fetchWebContent",
+      "name": "fetch",
       "arguments": {
         "url": "https://example.com",
         "num_words": 500,
@@ -223,7 +223,7 @@ curl -X POST http://localhost:8000/mcp/messages/ \
   }'
 ```
 
-#### searchWeb
+#### search
 
 Execute a web search with automatic failover between configured providers.
 
@@ -260,7 +260,7 @@ result = await search_web(
 
 **Example (curl — HTTP transport):**
 
-After initializing a session (see fetchWebContent example above), call the tool:
+After initializing a session (see fetch example above), call the tool:
 ```bash
 curl -X POST http://localhost:8000/mcp/messages/ \
   -H "Accept: application/json, text/event-stream" \
@@ -271,7 +271,7 @@ curl -X POST http://localhost:8000/mcp/messages/ \
     "id": 2,
     "method": "tools/call",
     "params": {
-      "name": "searchWeb",
+      "name": "search",
       "arguments": {
         "query": "Python async programming",
         "provider": "tavily",
@@ -550,7 +550,7 @@ nssm start WebToolMCP
 ## Architecture Notes
 
 ### Extraction Pipeline
-The server uses a multi-tiered async extraction pipeline for `fetchWebContent`. Each tier is tried in order; the first result that meets the minimum quality threshold (≥ 50 words) is returned:
+The server uses a multi-tiered async extraction pipeline for `fetch`. Each tier is tried in order; the first result that meets the minimum quality threshold (≥ 50 words) is returned:
 
 1. **Playwright** — a shared headless Chromium browser (singleton) renders the page with JavaScript, enabling content from SPAs and lazy-loaded sites.
 2. **Trafilatura** — applies text-density heuristics to strip boilerplate from the rendered (or raw) HTML.
@@ -568,7 +568,7 @@ All API keys are loaded from the `.env` file at startup. The server never hardco
 Content is converted to Markdown format using `markdownify`, making it ideal for consumption by LLMs without HTML parsing overhead.
 
 ### Multi-Provider Search
-The searchWeb tool abstracts over multiple search providers, normalizing their output formats. Miklium is always available as the default provider (no API key required). Additional providers (Tavily, Brave, Google) are enabled when their API keys are configured. When a preferred provider fails or is not configured, the tool automatically fails over to the next available provider in priority order (miklium > tavily > brave > google).
+The search tool abstracts over multiple search providers, normalizing their output formats. Miklium is always available as the default provider (no API key required). Additional providers (Tavily, Brave, Google) are enabled when their API keys are configured. When a preferred provider fails or is not configured, the tool automatically fails over to the next available provider in priority order (miklium > tavily > brave > google).
 
 ### Brave Freshness Mapping
 The `days` parameter is mapped to Brave's freshness codes: 1 day = `pd`, 7 days = `pw`, 31 days = `pm`, 365 days = `py`. Values outside these ranges produce no freshness filter.

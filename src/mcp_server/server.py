@@ -29,7 +29,7 @@ load_dotenv(_ENV_PATH)
 # --- Search Provider Enum ====================================================
 
 class SearchProvider(str, Enum):
-    """Valid search providers for searchWeb tool."""
+    """Valid search providers for search tool."""
     MIKLIUM = "miklium"
     TAVILY = "tavily"
     BRAVE = "brave"
@@ -593,8 +593,8 @@ async def fetch_web_content(
 
 
 @app.post(
-    "/searchWeb",
-    operation_id="searchWeb",
+    "/search",
+    operation_id="search",
     tags=["mcp-tool"],
     summary="Perform web search, general or with optional specified provider",
     dependencies=[Depends(_require_auth)],
@@ -616,8 +616,8 @@ async def api_search_web(
 
 
 @app.post(
-    "/fetchWebContent",
-    operation_id="fetchWebContent",
+    "/fetch",
+    operation_id="fetch",
     tags=["mcp-tool"],
     summary="Fetch a URL, extract content as Markdown, and optionally summarize via LLM",
     dependencies=[Depends(_require_auth)],

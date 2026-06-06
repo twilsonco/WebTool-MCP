@@ -45,7 +45,7 @@ async def demonstrate_sse_streaming():
     This example shows the full lifecycle of an MCP session including:
     1. Initializing the connection
     2. Listing available tools
-    3. Calling a tool (searchWeb)
+    3. Calling a tool (search)
     4. Properly closing the session
     """
     print(f"\n{'#'*60}")
@@ -75,11 +75,11 @@ async def demonstrate_sse_streaming():
             
             print(f"\n✓ Found {len(tools.tools)} tool(s)")
             
-            # Call the searchWeb tool to demonstrate a complete round-trip
-            print("\n--- Calling searchWeb Tool ---")
+            # Call the search tool to demonstrate a complete round-trip
+            print("\n--- Calling search Tool ---")
             
             result = await session.call_tool(
-                "searchWeb",
+                "search",
                 arguments={
                     "query": "Model Context Protocol MCP specification",
                     "num_results": 3
@@ -111,7 +111,7 @@ async def demonstrate_sse_streaming():
 
 async def demonstrate_sse_with_fetch():
     """
-    Demonstrates SSE streaming with the fetchWebContent tool.
+    Demonstrates SSE streaming with the fetch tool.
     
     This shows how to use SSE streams for content fetching operations,
     which can be useful when dealing with longer-running fetches.
@@ -129,7 +129,7 @@ async def demonstrate_sse_with_fetch():
             print("\n--- Fetching Web Content via SSE ---")
             
             result = await session.call_tool(
-                "fetchWebContent",
+                "fetch",
                 arguments={
                     "url": "https://example.com",
                     "num_words": 50
@@ -161,8 +161,8 @@ def main():
         epilog="""
 Examples:
   %(prog)s              Run all SSE streaming demos
-  %(prog)s search       Only run the search demo (searchWeb)
-  %(prog)s fetch        Only run the fetch demo (fetchWebContent)
+  %(prog)s search       Only run the search demo (search)
+  %(prog)s fetch        Only run the fetch demo (fetch)
 
 The server must be running before executing this script:
   uv run python src/mcp_server/server.py --http

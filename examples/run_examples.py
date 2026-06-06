@@ -7,8 +7,8 @@ Usage:
     uv run python examples/run_examples.py [fetch|search|all]
 
 Examples:
-    uv run python examples/run_examples.py fetch     # Run fetchWebContent examples (includes summarize via summarize=true)
-    uv run python examples/run_examples.py search    # Run searchWeb examples
+    uv run python examples/run_examples.py fetch     # Run fetch examples (includes summarize via summarize=true)
+    uv run python examples/run_examples.py search    # Run search examples
     uv run python examples/run_examples.py all       # Run everything
 """
 import asyncio
@@ -25,8 +25,8 @@ async def main():
     if len(sys.argv) < 2:
         print(__doc__)
         print("\nNo command specified. Available examples:")
-        print("  fetch     - fetchWebContent tool demonstrations (normal and summarize modes)")
-        print("  search    - searchWeb (Tavily/Brave/Google) demos")
+        print("  fetch     - fetch tool demonstrations (normal and summarize modes)")
+        print("  search    - search (Tavily/Brave/Google) demos")
         sys.exit(1)
 
     command = sys.argv[1].lower()

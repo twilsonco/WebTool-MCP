@@ -91,10 +91,10 @@ async def test_list_tools(session: ClientSession) -> dict[str, Any]:
 
 
 async def test_search_web(session: ClientSession):
-    """Test searchWeb with default provider (miklium)."""
+    """Test search with default provider (miklium)."""
     return await call_mcp_tool(
         session,
-        "searchWeb",
+        "search",
         {
             "query": "Python MCP server implementation",
             "num_results": 3
@@ -103,10 +103,10 @@ async def test_search_web(session: ClientSession):
 
 
 async def test_search_web_tavily(session: ClientSession):
-    """Test searchWeb with tavily provider."""
+    """Test search with tavily provider."""
     return await call_mcp_tool(
         session,
-        "searchWeb",
+        "search",
         {
             "query": "Python async programming",
             "provider": "tavily",
@@ -116,10 +116,10 @@ async def test_search_web_tavily(session: ClientSession):
 
 
 async def test_search_web_brave(session: ClientSession):
-    """Test searchWeb with brave provider."""
+    """Test search with brave provider."""
     return await call_mcp_tool(
         session,
-        "searchWeb",
+        "search",
         {
             "query": "FastMCP tutorial",
             "provider": "brave",
@@ -129,10 +129,10 @@ async def test_search_web_brave(session: ClientSession):
 
 
 async def test_search_web_google(session: ClientSession):
-    """Test searchWeb with google provider."""
+    """Test search with google provider."""
     return await call_mcp_tool(
         session,
-        "searchWeb",
+        "search",
         {
             "query": "MCP protocol specification",
             "provider": "google",
@@ -142,10 +142,10 @@ async def test_search_web_google(session: ClientSession):
 
 
 async def test_fetch_web_content(session: ClientSession):
-    """Test fetchWebContent basic."""
+    """Test fetch basic."""
     return await call_mcp_tool(
         session,
-        "fetchWebContent",
+        "fetch",
         {
             "url": "https://example.com",
             "num_words": 50
@@ -154,10 +154,10 @@ async def test_fetch_web_content(session: ClientSession):
 
 
 async def test_fetch_web_content_summarize(session: ClientSession):
-    """Test fetchWebContent with summarization."""
+    """Test fetch with summarization."""
     return await call_mcp_tool(
         session,
-        "fetchWebContent",
+        "fetch",
         {
             "url": "https://blog.comma.ai/011release/",
             "num_words": 300,
@@ -324,7 +324,7 @@ Examples:
   %(prog)s search               Run all search tests (1-4)
   %(prog)s fetch                Run both fetch tests (5-6)
   %(prog)s all                  Same as no args - run everything
-  %(prog)s 1                    Run only test 1 (searchWeb default)
+  %(prog)s 1                    Run only test 1 (search default)
   %(prog)s 2-4                  Run tests 2, 3, and 4
   %(prog)s 1-6                  Run all numbered tests (skips health/tools)
  
@@ -333,12 +333,12 @@ Prerequisites:
     uv run python src/mcp_server/server.py --http --port {PORT}
 
 Tests (numbered for selection):
-  1. test_search_web           - searchWeb with default provider (miklium)
-  2. test_search_web_tavily    - searchWeb with tavily provider
-  3. test_search_web_brave     - searchWeb with brave provider
-  4. test_search_web_google    - searchWeb with google provider
-  5. test_fetch_web_content    - fetchWebContent basic (50 words)
-  6. test_fetch_web_content_summarize - fetchWebContent with summarization
+  1. test_search_web           - search with default provider (miklium)
+  2. test_search_web_tavily    - search with tavily provider
+  3. test_search_web_brave     - search with brave provider
+  4. test_search_web_google    - search with google provider
+  5. test_fetch_web_content    - fetch basic (50 words)
+  6. test_fetch_web_content_summarize - fetch with summarization
 
 Special categories:
   health    - Test server connectivity (always runs first if 'all')
@@ -406,12 +406,12 @@ async def main(selected_tests: set[int] | None = None, run_health: bool = True,
             
             # Define numbered test functions and their indices
             tests = [
-                (1, "searchWeb (default - miklium)", lambda: test_search_web(session), "search"),
-                (2, "searchWeb (tavily)", lambda: test_search_web_tavily(session), "search"),
-                (3, "searchWeb (brave)", lambda: test_search_web_brave(session), "search"),
-                (4, "searchWeb (google)", lambda: test_search_web_google(session), "search"),
-                (5, "fetchWebContent", lambda: test_fetch_web_content(session), "fetch"),
-                (6, "fetchWebContent (summarize mode)", lambda: test_fetch_web_content_summarize(session), "fetch"),
+                (1, "search (default - miklium)", lambda: test_search_web(session), "search"),
+                (2, "search (tavily)", lambda: test_search_web_tavily(session), "search"),
+                (3, "search (brave)", lambda: test_search_web_brave(session), "search"),
+                (4, "search (google)", lambda: test_search_web_google(session), "search"),
+                (5, "fetch", lambda: test_fetch_web_content(session), "fetch"),
+                (6, "fetch (summarize mode)", lambda: test_fetch_web_content_summarize(session), "fetch"),
             ]
             
             # Run selected tests or all if none specified

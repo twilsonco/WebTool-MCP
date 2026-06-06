@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-fetchWebContent examples - Demonstrates usage of the fetchWebContent MCP tool.
+fetch examples - Demonstrates usage of the fetch MCP tool.
 This script imports and calls the actual implementation directly.
 
 The atomic API fetches one URL per call:
@@ -79,7 +79,7 @@ def parse_example_selection(selection: str | None) -> set[int]:
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="fetchWebContent examples demonstrating various features and use cases.",
+        description="fetch examples demonstrating various features and use cases.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -427,7 +427,7 @@ async def example_summary():
 
 
 async def main(selected_examples: set[int] | None = None):
-    """Run fetchWebContent examples.
+    """Run fetch examples.
     
     Args:
         selected_examples: Set of example numbers to run. If None or empty, run all.
@@ -452,7 +452,7 @@ async def main(selected_examples: set[int] | None = None):
         examples_to_run = all_examples
     
     print("\n" + "#" * 60)
-    print("# fetchWebContent Examples (using real implementation)")
+    print("# fetch Examples (using real implementation)")
     if selected_examples:
         example_nums = sorted(selected_examples)
         print(f"# Running examples: {example_nums}")
