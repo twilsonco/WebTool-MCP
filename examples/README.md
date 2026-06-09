@@ -9,14 +9,14 @@ This directory contains example scripts demonstrating how to interact with the W
 Entry-point launcher that runs example scripts by tool name. Supports `fetch`, `search`, or `all` (runs all in sequence with prompts between each).
 
 ```bash
-uv run python examples/run_examples.py fetch      # fetchWebContent demos only (includes summarize via summarize=true)
-uv run python examples/run_examples.py search     # searchWeb demos only
+uv run python examples/run_examples.py fetch      # fetch demos only (includes summarize via summarize=true)
+uv run python examples/run_examples.py search     # search demos only
 uv run python examples/run_examples.py all        # everything in sequence
 ```
 
 ### test_mcp.py
 
-End-to-end MCP client test that connects via the streamable-http transport and calls all tools through the MCP protocol (JSON-RPC). Tests `searchWeb` with each provider (miklium, tavily, brave, google), and `fetchWebContent` (normal fetch and summarize modes).
+End-to-end MCP client test that connects via the streamable-http transport and calls all tools through the MCP protocol (JSON-RPC). Tests `search` with each provider (miklium, tavily, brave, google), and `fetch` (normal fetch and summarize modes).
 
 **How to Run:**
 
@@ -33,11 +33,11 @@ End-to-end MCP client test that connects via the streamable-http transport and c
 **Requirements:**
 - Server must be running on `http://localhost:8000` (or set `MCP_SERVER_PORT` env var)
 - Internet connection for making web requests
-- For summarize mode (`fetchWebContent` with summarize=true), configure LLM providers in `.env` (optional - search and normal fetch work without it)
+- For summarize mode (`fetch` with summarize=true), configure LLM providers in `.env` (optional - search and normal fetch work without it)
 
 ### fetch_web_content_examples.py
 
-Direct-call examples importing the actual `fetchWebContent` implementation from server.py. Each call fetches a single URL. No API keys needed (except example 7, which requires an LLM provider).
+Direct-call examples importing the actual `fetch` implementation from server.py. Each call fetches a single URL. No API keys needed (except example 7, which requires an LLM provider).
 
 1. **Basic Fetch** - Fetch a URL and display raw Markdown; repeated with `include_links=False`
 2. **Word Truncation** - `num_words=50` truncates output to 50 words
@@ -55,11 +55,11 @@ uv run python examples/fetch_web_content_examples.py 1-3,5    # examples 1, 2, 3
 ```
 
 **Extraction Pipeline:**
-`fetchWebContent` uses a multi-tiered pipeline to maximise content quality: Playwright (JS rendering) → Trafilatura → Readability-lxml → Docling (binary documents) → BeautifulSoup (fallback). An optional LLM refinement pass is available via `use_llm_refinement=True`.
+`fetch` uses a multi-tiered pipeline to maximise content quality: Playwright (JS rendering) → Trafilatura → Readability-lxml → Docling (binary documents) → BeautifulSoup (fallback). An optional LLM refinement pass is available via `use_llm_refinement=True`.
 
 ### search_web_examples.py
 
-Direct-call examples importing the actual `searchWeb` implementation. Each call performs a single search with one provider. Supports a `--dry-run` flag to print search specs without making API calls.
+Direct-call examples importing the actual `search` implementation. Each call performs a single search with one provider. Supports a `--dry-run` flag to print search specs without making API calls.
 
 1. **Miklium Search** - Default, free provider (no API key required)
 2. **Tavily Search** - Requires `TAVILY_API_KEY`
@@ -82,7 +82,7 @@ uv run python examples/search_web_examples.py --dry-run    # print specs, no API
 
 ### summarize_web_content_examples.py (removed)
 
-This file has been removed. Summarization is now part of `fetchWebContent` — use it with `summarize=true` and optional `summary_prompt`.
+This file has been removed. Summarization is now part of `fetch` — use it with `summarize=true` and optional `summary_prompt`.
 
 ### sse_streaming_example.py
 
@@ -101,6 +101,6 @@ uv run python src/mcp_server/server.py --http
 
 # In another terminal, run the SSE streaming example:
 uv run python examples/sse_streaming_example.py           # all demos
-uv run python examples/sse_streaming_example.py search    # only searchWeb demo
-uv run python examples/sse_streaming_example.py fetch     # only fetchWebContent demo
+uv run python examples/sse_streaming_example.py search    # only search demo
+uv run python examples/sse_streaming_example.py fetch     # only fetch demo
 ```

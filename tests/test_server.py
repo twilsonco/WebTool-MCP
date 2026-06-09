@@ -1687,15 +1687,14 @@ class TestHTTPEndpoints:
     def test_mcp_tools_registered(self):
         from mcp_server.server import fastapi_mcp
         tool_names = [t.name for t in fastapi_mcp.tools]
-        assert "searchWeb" in tool_names
-        assert "fetchWebContent" in tool_names
-        # summarizeWebContent is now removed - only 2 tools remain
+        assert "search" in tool_names
+        assert "fetch" in tool_names
+        assert "agenticFetch" in tool_names
 
     def test_mcp_tools_exclude_health(self):
         from mcp_server.server import fastapi_mcp
         tool_names = [t.name for t in fastapi_mcp.tools]
         assert "health__get" not in tool_names
-        # Only 2 tools (searchWeb, fetchWebContent)
 
     def test_mcp_endpoint_registered(self):
         """Test that the /mcp endpoint is registered in FastAPI routes."""
@@ -1737,17 +1736,17 @@ class TestSSEMount:
         assert hasattr(fastapi_mcp, 'server'), "fastapi_mcp should have server attribute"
         # Verify tools are registered (indicating MCP properly configured)
         tool_names = [t.name for t in fastapi_mcp.tools]
-        assert "searchWeb" in tool_names, "Expected searchWeb tool to be registered"
+        assert "search" in tool_names, "Expected search tool to be registered"
 
     def test_mcp_tool_schemas(self):
         from mcp_server.server import fastapi_mcp
         tools_by_name = {t.name: t for t in fastapi_mcp.tools}
-        # searchWeb has query as required
-        search_props = tools_by_name["searchWeb"].inputSchema["properties"]
+        # search has query as required
+        search_props = tools_by_name["search"].inputSchema["properties"]
         assert "query" in search_props
         assert "provider" in search_props
-        # fetchWebContent has url as required, plus summarize and summary_prompt params
-        fetch_props = tools_by_name["fetchWebContent"].inputSchema["properties"]
+        # fetch has url as required, plus summarize and summary_prompt params
+        fetch_props = tools_by_name["fetch"].inputSchema["properties"]
         assert "url" in fetch_props
         assert "summarize" in fetch_props
         assert "summary_prompt" in fetch_props
@@ -1761,7 +1760,7 @@ class TestSSEMount:
 
     def test_fastapi_app_routes(self, client):
         # POST routes accept query params (FastAPI default for simple-typed params)
-        resp = client.post("/searchWeb?query=test")
+        resp = client.post("/search?query=test")
         assert resp.status_code == 200
 
 

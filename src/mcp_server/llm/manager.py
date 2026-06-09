@@ -6,7 +6,10 @@ calls in priority order until one succeeds.
 """
 
 import os
+import os
 from typing import List, Optional
+
+from .base import LLMProvider, LLMProviderConfig
 
 from .base import LLMProvider, LLMProviderConfig
 from .exceptions import LLMAllProvidersFailedError, LLMProviderError
@@ -107,5 +110,42 @@ class LLMManager:
 
         raise LLMAllProvidersFailedError(
             f"All {len(self._providers)} LLM providers failed. "
+            f"Errors: {'; '.join(errors)}"
+        )
+
+    async def complete_with_images(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        images: Optional[List[str]] = None
+    ) -> str:
+        """
+        Attempt completion with images using providers in failover order.
+
+        Tries each provider sequentially. If a provider fails, logs the error
+        and attempts the next one. Returns on first successful response.
+
+        Args:
+            prompt: The user message content.
+            system_prompt: Optional system message for context.
+            images: List of base64 image data URIs.
+
+        Returns:
+            The assistant's response content as a string.
+
+        Raises:
+            LLMAllProvidersFailedError: If all providers fail.
+        """
+        errors = []
+
+        for provider in self._providers:
+            try:
+                return await provider.complete_with_images(prompt, system_prompt, images)
+            except LLMProviderError as e:
+                errors.append(str(e))
+                continue
+
+        raise LLMAllProvidersFailedError(
+            f"All {len(self._providers)} LLM providers failed for vision request. "
             f"Errors: {'; '.join(errors)}"
         )

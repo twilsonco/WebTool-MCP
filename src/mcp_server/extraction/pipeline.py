@@ -438,6 +438,37 @@ class ContentExtractionPipeline:
         except Exception:
             return ExtractionResult(content="", method="failed")
 
+    async def capture_screenshot(self, url: str) -> Optional[str]:
+        """
+        Navigate to URL and capture a screenshot as base64 PNG.
+
+        Returns:
+            Base64-encoded PNG image, or None on failure.
+        """
+        try:
+            browser = await self._get_browser()
+            if browser is None:
+                return None
+
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                )
+            )
+            page = await context.new_page()
+            try:
+                await page.goto(url, wait_until="networkidle", timeout=20000)
+                screenshot_bytes = await page.screenshot(format="png", encoding="base64")
+                return screenshot_bytes
+            finally:
+                await page.close()
+                await context.close()
+        except Exception as exc:
+            logger.warning("Screenshot capture failed for %s: %s", url, exc)
+            return None
+
     async def playwright_fetch_binary(
         self, url: str, timeout: float = 30.0, _extra_wait: Optional[float] = None
     ) -> Optional[bytes]:
