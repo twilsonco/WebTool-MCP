@@ -2333,4 +2333,256 @@ class TestApiAgenticFetchEndpoint:
                     json={"prompt": "Find info about test", "max_steps": 5}
                 )
 
+
+class TestFirecrawlEndpointsDisabled:
+    """Tests for Firecrawl endpoints when USE_FIRECRAWL is not enabled."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from mcp_server.server import app
+        return TestClient(app)
+
+    def test_batch_scrape_disabled_returns_error(self, client):
+        """Test that batch-scrape returns error when USE_FIRECRAWL is not set."""
+        with patch("mcp_server.server.USE_FIRECRAWL", False):
+            response = client.post(
+                "/batch-scrape",
+                json={"urls": ["https://example.com"]}
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert "error" in data
+        assert "Firecrawl is not enabled" in data["error"]
+
+    def test_batch_status_disabled_returns_error(self, client):
+        """Test that batch-status returns error when USE_FIRECRAWL is not set."""
+        with patch("mcp_server.server.USE_FIRECRAWL", False):
+            response = client.post(
+                "/batch-status/test-job-id"
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert "error" in data
+        assert "Firecrawl is not enabled" in data["error"]
+
+    def test_map_disabled_returns_error(self, client):
+        """Test that map returns error when USE_FIRECRAWL is not set."""
+        with patch("mcp_server.server.USE_FIRECRAWL", False):
+            response = client.post(
+                "/map",
+                json={"url": "https://example.com"}
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert "error" in data
+        assert "Firecrawl is not enabled" in data["error"]
+
+
+class TestBatchScrapeEndpoint:
+    """Tests for batch-scrape endpoint."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from mcp_server.server import app
+        return TestClient(app)
+
+    def test_batch_scrape_success_returns_job_id(self, client):
+        """Test successful batch scrape returns job ID."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.batch_scrape.return_value = {"jobId": "test-job-123"}
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                response = client.post(
+                    "/batch-scrape",
+                    json={"urls": ["https://example.com", "https://test.com"]}
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["job_id"] == "test-job-123"
+
+    def test_batch_scrape_with_only_main_content(self, client):
+        """Test batch scrape with only_main_content parameter."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.batch_scrape.return_value = {"jobId": "job-456"}
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                response = client.post(
+                    "/batch-scrape",
+                    json={"urls": ["https://example.com"], "only_main_content": False}
+                )
+
+        assert response.status_code == 200
+        mock_firecrawl.batch_scrape.assert_called_once()
+        call_kwargs = mock_firecrawl.batch_scrape.call_args.kwargs
+        assert call_kwargs["only_main_content"] is False
+
+
+class TestBatchStatusEndpoint:
+    """Tests for batch-status endpoint."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from mcp_server.server import app
+        return TestClient(app)
+
+    def test_batch_status_success_returns_data(self, client):
+        """Test successful batch status returns job data."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.get_batch_status.return_value = {
+            "status": "completed",
+            "data": [{"url": "https://example.com", "content": "test"}]
+        }
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                response = client.post(
+                    "/batch-status/test-job-123"
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "completed"
+
+    def test_batch_status_not_found(self, client):
+        """Test batch status returns error when job not found."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.get_batch_status.return_value = {}
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                response = client.post(
+                    "/batch-status/nonexistent-job"
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "error" in data
+
+
+class TestMapWebsiteEndpoint:
+    """Tests for map endpoint."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from mcp_server.server import app
+        return TestClient(app)
+
+    def test_map_site_success_returns_urls(self, client):
+        """Test successful map returns discovered URLs."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.map_site.return_value = [
+            "https://example.com",
+            "https://example.com/about",
+            "https://example.com/contact"
+        ]
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                response = client.post(
+                    "/map",
+                    json={"url": "https://example.com"}
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 3
+        assert len(data["urls"]) == 3
+
+    def test_map_site_error_handling(self, client):
+        """Test map handles errors gracefully."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.map_site.side_effect = Exception("Connection failed")
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                response = client.post(
+                    "/map",
+                    json={"url": "https://example.com"}
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "error" in data
+
+
+class TestScreenshotEndpointFirecrawl:
+    """Tests for screenshot endpoint with Firecrawl."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from mcp_server.server import app
+        return TestClient(app)
+
+    def test_screenshot_uses_firecrawl_when_enabled(self, client):
+        """Test that screenshot uses Firecrawl when USE_FIRECRAWL=true."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.screenshot.return_value = "base64screenshotdata"
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                response = client.post(
+                    "/screenshot",
+                    json={
+                        "url": "https://example.com",
+                        "full_page": True,
+                        "quality": 85
+                    }
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        mock_firecrawl.screenshot.assert_called_once_with(
+            url="https://example.com",
+            full_page=True,
+            quality=85,
+            width=1920,
+            height=1080,
+        )
+
+    def test_screenshot_falls_back_to_playwright(self, client):
+        """Test that screenshot falls back to Playwright when Firecrawl returns None."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.screenshot.return_value = None
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                with patch("mcp_server.server.capture_screenshot_endpoint", new=AsyncMock(return_value={"success": False, "error": "Playwright fallback"})) as mock_playwright:
+                    response = client.post(
+                        "/screenshot",
+                        json={"url": "https://example.com"}
+                    )
+
+        assert response.status_code == 200
+
+
+class TestFetchWithFirecrawlOptions:
+    """Tests for fetch endpoint with Firecrawl-specific options."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_screenshot_full_page(self):
+        """Test that screenshot_full_page triggers Firecrawl screenshot capture."""
+        mock_firecrawl = AsyncMock()
+        mock_firecrawl.screenshot.return_value = "screenshot_base64_data"
+
+        with patch("mcp_server.server.USE_FIRECRAWL", True):
+            with patch("mcp_server.server._get_firecrawl_client", new=AsyncMock(return_value=mock_firecrawl)):
+                result = await fetch_web_content(
+                    url="https://example.com",
+                    screenshot_full_page=True,
+                    screenshot_quality=90
+                )
+
+        assert "screenshot_base64" in result
+        mock_firecrawl.screenshot.assert_called_once()
+
             mock_fn.assert_called_once_with(prompt="Find info about test", max_steps=5)

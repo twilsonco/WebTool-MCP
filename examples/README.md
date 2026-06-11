@@ -47,6 +47,22 @@ Direct-call examples importing the actual `fetch` implementation from server.py.
 6. **PDF Fetch** - Fetches a real PDF via the binary-document path (Docling)
 7. **LLM Refinement** - `use_llm_refinement=True` applies an optional LLM semantic cleanup pass (requires `LLM_PROVIDER_1_*` in `.env`)
 8. **Full Content Fetch** - Fetches real-world URLs with full content extraction
+9. **Summarize Content** - Use `summarize=true` to get LLM-generated summaries
+
+**Firecrawl Examples (10-13):**
+
+Examples 10-13 demonstrate Firecrawl features when `USE_FIRECRAWL=true` and Firecrawl is running.
+
+10. **Firecrawl Scrape** - Basic AI-powered scraping with markdown output
+11. **Firecrawl with Options** - Use screenshot_full_page, only_main_content options
+12. **Firecrawl Map Site** - Discover URLs on a site via `/map` endpoint
+13. **Firecrawl Batch Scrape** - Submit batch scrape jobs for multiple URLs
+
+> **Note:** Firecrawl requires starting the service first:
+> ```bash
+> ./start-firecrawl.sh   # or manually start Firecrawl
+> export USE_FIRECRAWL=true
+> ```
 
 ```bash
 uv run python examples/fetch_web_content_examples.py          # run all examples

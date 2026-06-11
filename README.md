@@ -21,6 +21,11 @@ The server is built with:
 Fetch URLs and convert content to Markdown format with optional filtering, pagination, and LLM-powered summarization.
 
 Uses a **multi-tiered extraction pipeline** to maximise content quality:
+
+When `USE_FIRECRAWL=true`, Firecrawl is attempted first as the primary extractor:
+0. **Firecrawl** (optional) — API-based scraping with JavaScript rendering; if it fails or returns thin content (<200 words), the entire legacy pipeline runs as one fallback block
+
+Legacy pipeline continues with:
 1. **Playwright** — renders JavaScript/SPA pages in a headless browser
 2. **Trafilatura** — fast heuristic text-density extraction
 3. **Readability-lxml** — Mozilla-style article extraction
@@ -43,6 +48,51 @@ Multi-provider web search with support for:
 - **[Google Custom Search](https://developers.google.com/custom-search/docs/overview)** - Programmable Search Engine integration (requires API key and Search Engine ID from Google)
 
 Features include automatic failover between providers and date filtering (results from the last N days).
+
+### agentic_fetch
+Autonomous AI-powered web browsing that plans and executes multi-step research tasks.
+
+The agent uses a loop-based approach:
+1. Analyze the user's request and decide on an action
+2. Execute actions (search, fetch content, navigate pages)
+3. Evaluate results and decide next steps
+4. Repeat until information is found or max steps reached
+
+**Firecrawl Enhancement:**
+When Firecrawl is configured (`FIRECRAWL_API_URL` environment variable), the agent uses it for:
+- **Fast URL fetching** — Uses Firecrawl scrape API instead of browser-use for simple content retrieval
+- **URL discovery** — Uses `/map` endpoint to discover related URLs during research
+- **Batch scraping** — Processes multiple URLs efficiently when needed
+
+The agent falls back through multiple extraction methods:
+1. Firecrawl (if configured and available)
+2. Browser-use with Playwright (for interactive pages requiring JavaScript rendering)
+3. Direct HTTP fetch via extraction pipeline
+
+Example usage:
+```python
+from mcp_server.agentic import AgenticFetchAgent
+from mcp_server.extraction.firecrawl_client import get_firecrawl_client
+
+firecrawl = await get_firecrawl_client()
+agent = AgenticFetchAgent(
+    llm_manager=llm_manager,
+    firecrawl_client=firecrawl,
+    max_steps=10
+)
+result = await agent.execute("Research the latest developments in AI")
+```
+
+Or use the convenience function:
+```python
+from mcp_server.agentic import agentic_fetch
+
+result = await agentic_fetch(
+    prompt="Find recent news about Python",
+    firecrawl_client=firecrawl,
+    max_steps=5
+)
+```
 
 ## Prerequisites
 
@@ -177,6 +227,18 @@ Fetch a URL and convert to Markdown.
 | `summarize` | bool | `False` | When true, return an LLM-generated summary instead of raw content (requires LLM provider configuration) |
 | `summary_prompt` | str | (empty) | Custom prompt to guide the summarization (optional, uses built-in default if empty) |
 
+**Firecrawl Options** (when USE_FIRECRAWL=true):
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `use_firecrawl` | bool | `None` | Force use of Firecrawl for this request |
+| `screenshot_full_page` | bool | `False` | Capture full page screenshot via Firecrawl |
+| `screenshot_quality` | int | `80` | Screenshot quality 1-100 |
+| `screenshot_viewport_width` | int | `1920` | Viewport width in pixels for screenshots |
+| `screenshot_viewport_height` | int | `1080` | Viewport height in pixels for screenshots |
+| `use_clean_content` | bool | `False` | Use onlyCleanContent mode (extract main content only) |
+| `extract_schema` | dict | `None` | JSON schema for structured extraction via Firecrawl |
+| `extract_prompt` | str | `None` | Prompt guiding JSON extraction |
+
 **Returns:** `{"url": "...", "content": "markdown"}` (normal) or `{"url": "...", "summary": "..."}` when summarize=true; also `{"url": "...", "error": "..."}` on failure
 
 **Example (Python):**
@@ -280,6 +342,77 @@ curl -X POST http://localhost:8000/mcp/messages/ \
     }
   }'
 ```
+
+#### batch_scrape
+
+Batch scrape multiple URLs using Firecrawl. Returns a job ID for status polling.
+
+**Requires:** USE_FIRECRAWL=true in environment configuration.
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `urls` | list[str] | Required | List of URLs to scrape |
+| `only_main_content` | bool | `True` | Extract only main content (skip navigation, ads, etc.) |
+
+**Returns:** `{"success": true, "job_id": "..."}` or `{"error": "..."}`
+
+**Example (Python):**
+```python
+result = await api_batch_scrape(
+    urls=["https://example.com", "https://example.org"],
+    only_main_content=True
+)
+job_id = result["job_id"]
+```
+
+#### batch_status
+
+Poll for batch scrape job status and results from Firecrawl.
+
+**Requires:** USE_FIRECRAWL=true in environment configuration.
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `job_id` | str | Required | Job ID returned from batch_scrape |
+
+**Returns:** Job status dict including 'data' field with scraped content when complete
+
+#### map
+
+Discover all URLs on a website without scraping content.
+
+Uses Firecrawl's map endpoint to discover and return URLs found during crawl of the specified website.
+
+**Requires:** USE_FIRECRAWL=true in environment configuration.
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | str | Required | Root URL to start crawling from |
+
+**Returns:**
+```python
+{"url": "https://example.com", "urls": ["https://example.com/page1", ...], "count": 42}
+```
+
+#### screenshot
+
+Capture a screenshot of a URL using Playwright or Firecrawl.
+
+When USE_FIRECRAWL=true, uses Firecrawl for screenshots with enhanced options including full_page capture, quality settings, and viewport dimensions. Otherwise falls back to Playwright-based capture.
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | str | Required | URL to capture |
+| `full_page` | bool | `False` | Capture the entire scrollable page (Firecrawl only) |
+| `quality` | int | `80` | Image quality 1-100 for JPEG screenshots |
+| `viewport_width` | int | `1920` | Viewport width in pixels |
+| `viewport_height` | int | `1080` | Viewport height in pixels |
+
+**Returns:** `{"success": true, "image_base64": "...", "url": "..."}` or error dict
 
 ## MCP Client Integration
 

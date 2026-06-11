@@ -6,6 +6,12 @@ This module provides an agent that can:
 - Plan and execute web searches/fetches using AI decision-making
 - Navigate, click, scroll as needed using browser automation
 - Return found content or a detailed report of URLs visited if not found
+
+Firecrawl Integration (Phase 5):
+- When firecrawl_client is provided, simple URL fetches use Firecrawl scrape API
+- Uses /map endpoint for URL discovery during research phase
+- Supports batch scraping for multiple URLs
+- Provides structured extraction options via question format
 """
 
 import asyncio
@@ -523,6 +529,7 @@ When you cannot find what was requested after multiple attempts:
         extraction_pipeline: Optional[ExtractionPipeline] = None,
         search_func: Optional[SearchFunc] = None,
         fetch_func: Optional[FetchFunc] = None,
+        firecrawl_client: Optional[Any] = None,
         max_steps: int = 10,
         stream_callback: Optional[StreamCallback] = None,
         vision_enabled: bool = False
@@ -538,6 +545,9 @@ When you cannot find what was requested after multiple attempts:
                 (must implement SearchFunc protocol)
             fetch_func: Async function for content fetching with signature (url) -> dict
                 (must implement FetchFunc protocol)
+            firecrawl_client: Optional FirecrawlClient instance for enhanced scraping.
+                When provided, simple URL fetches use Firecrawl scrape API instead of browser-use,
+                and additional capabilities like map_site and batch_scrape become available.
             max_steps: Maximum number of agent steps before giving up
             stream_callback: Optional async callback for streaming step progress updates.
                 Called after each step completes with (step_num, action, description, result).
@@ -548,6 +558,7 @@ When you cannot find what was requested after multiple attempts:
         self._extraction_pipeline = extraction_pipeline
         self._search_func = search_func
         self._fetch_func = fetch_func
+        self._firecrawl_client = firecrawl_client
         self.max_steps = max_steps
         self._stream_callback = stream_callback
         self.vision_enabled = vision_enabled
@@ -591,6 +602,68 @@ When you cannot find what was requested after multiple attempts:
         else:
             logger.error("No fetch function configured")
             return {"error": "Fetch not available"}
+
+    async def _firecrawl_fetch(self, url: str) -> Dict[str, Any]:
+        """
+        Fetch content from a URL using Firecrawl.
+
+        Uses the Firecrawl scrape API for fast, structured extraction.
+        Falls back to regular fetch if Firecrawl is unavailable or fails.
+
+        Args:
+            url: The URL to scrape
+
+        Returns:
+            Dictionary with extracted content, title, and metadata
+        """
+        if self._firecrawl_client is None:
+            logger.debug("Firecrawl client not configured")
+            return {"error": "Firecrawl not available"}
+
+        try:
+            result = await self._firecrawl_client.scrape(
+                url=url,
+                formats=["markdown", "html"],
+                only_main_content=True
+            )
+
+            if result is None:
+                logger.warning("Firecrawl scrape returned None for %s", url)
+                return {"error": "Firecrawl scrape failed"}
+
+            content = result.content if hasattr(result, 'content') else str(result)
+            return {
+                "content": content,
+                "title": getattr(result, 'title', '') or "",
+                "url": url,
+                "method": "firecrawl"
+            }
+
+        except Exception as e:
+            logger.warning("Firecrawl fetch failed for %s: %s", url, str(e))
+            return {"error": f"Firecrawl error: {str(e)}"}
+
+    async def _firecrawl_map(self, url: str) -> List[str]:
+        """
+        Discover URLs on a website using Firecrawl map endpoint.
+
+        Useful during research phase to discover related URLs.
+
+        Args:
+            url: Root URL to start crawling from
+
+        Returns:
+            List of discovered URLs
+        """
+        if self._firecrawl_client is None:
+            logger.debug("Firecrawl client not configured")
+            return []
+
+        try:
+            return await self._firecrawl_client.map_site(url, search_depth=1)
+        except Exception as e:
+            logger.warning("Firecrawl map_site failed for %s: %s", url, str(e))
+            return []
     
     async def _browser_search(self, query: str) -> Dict[str, Any]:
         """
@@ -1192,8 +1265,35 @@ Only return valid JSON array, no other text."""
 
                     step_result["url"] = url
                     
-                    # Use browser navigate if available, fallback to regular fetch
-                    task = f"""Navigate to {url} and extract the main content.
+                    # Firecrawl-enhanced fetch: use Firecrawl if available for simple fetches
+                    # (non-interactive URL content retrieval - faster than browser-use)
+                    firecrawl_used = False
+                    
+                    if action == "fetch" and self._firecrawl_client is not None:
+                        logger.info("Using Firecrawl for fetch action on %s", url)
+                        fetch_result = await self._firecrawl_fetch(url)
+                        
+                        if "error" not in fetch_result:
+                            content = fetch_result.get("content", "")
+                            step_result["result"] = f"Extracted {len(content) if content else 0} chars via Firecrawl"
+                            
+                            result.urls_visited.append({
+                                "url": url,
+                                "title": fetch_result.get("title", "")[:100] if isinstance(fetch_result, dict) else "",
+                                "action": f"Firecrawl fetched at step {step_num}"
+                            })
+                            
+                            current_context += f"\nStep {step_num} (fetch via Firecrawl): Fetched content from '{url}'.\n"
+                            current_context += f"Extracted {len(content) if content else 0} characters.\n"
+                            
+                            if content:
+                                current_context += f"Content preview: {content[:CONTENT_PREVIEW_MAX_LENGTH]}...\n"
+                            
+                            firecrawl_used = True
+                    
+                    # If Firecrawl was not used or failed, fall back to browser-based approach
+                    if not firecrawl_used:
+                        task = f"""Navigate to {url} and extract the main content.
 
 Wait for dynamic content to fully load. Extract:
 1. The page title
@@ -1205,65 +1305,65 @@ Return a JSON object:
 
 Only return valid JSON."""
 
-                    tool = BrowserTool(
-                        task_description=task,
-                        fallback_func=lambda: self._fetch(url)
-                    )
-                    
-                    try:
-                        browser_result = await tool.execute()
+                        tool = BrowserTool(
+                            task_description=task,
+                            fallback_func=lambda: self._fetch(url)
+                        )
                         
-                        if browser_result.get("fallback_used"):
-                            # Browser failed, fallback was used
-                            fetch_data = browser_result.get("result", {})
+                        try:
+                            browser_result = await tool.execute()
                             
-                            if "error" in fetch_data:
-                                step_result["result"] = f"Fetch error: {fetch_data['error']}"
-                            else:
-                                content = fetch_data.get("content", "")
-                                step_result["result"] = f"Extracted {len(content) if content else 0} chars via HTTP"
+                            if browser_result.get("fallback_used"):
+                                # Browser failed, fallback was used
+                                fetch_data = browser_result.get("result", {})
                                 
+                                if "error" in fetch_data:
+                                    step_result["result"] = f"Fetch error: {fetch_data['error']}"
+                                else:
+                                    content = fetch_data.get("content", "")
+                                    step_result["result"] = f"Extracted {len(content) if content else 0} chars via HTTP"
+                                    
+                                    result.urls_visited.append({
+                                        "url": url,
+                                        "title": fetch_data.get("title", "")[:100] if isinstance(fetch_data, dict) else "",
+                                        "action": f"Fetched at step {step_num}"
+                                    })
+                                    
+                                    current_context += f"\nStep {step_num} ({action}): Fetched content from '{url}'.\n"
+                                    current_context += f"Extracted {len(content) if content else 0} characters.\n"
+                                    
+                                    if content:
+                                        current_context += f"Content preview: {content[:CONTENT_PREVIEW_MAX_LENGTH]}...\n"
+                            else:
+                                # Browser succeeded
+                                parsed = browser_result.get("result")
+                                if isinstance(parsed, str):
+                                    try:
+                                        fetch_data = json.loads(parsed)
+                                    except json.JSONDecodeError:
+                                        logger.warning("Could not parse browser fetch result as JSON")
+                                        raise BrowserToolError("JSON parse failed")
+                                else:
+                                    fetch_data = parsed
+                                
+                                content = fetch_data.get("content", "") if isinstance(fetch_data, dict) else ""
+                                step_result["result"] = f"Extracted {len(content) if content else 0} chars via browser"
+                                
+                                # Add to URLs visited
                                 result.urls_visited.append({
                                     "url": url,
                                     "title": fetch_data.get("title", "")[:100] if isinstance(fetch_data, dict) else "",
-                                    "action": f"Fetched at step {step_num}"
+                                    "action": f"Navigated at step {step_num}"
                                 })
                                 
                                 current_context += f"\nStep {step_num} ({action}): Fetched content from '{url}'.\n"
                                 current_context += f"Extracted {len(content) if content else 0} characters.\n"
                                 
+                                # Check for relevant content
                                 if content:
                                     current_context += f"Content preview: {content[:CONTENT_PREVIEW_MAX_LENGTH]}...\n"
-                        else:
-                            # Browser succeeded
-                            parsed = browser_result.get("result")
-                            if isinstance(parsed, str):
-                                try:
-                                    fetch_data = json.loads(parsed)
-                                except json.JSONDecodeError:
-                                    logger.warning("Could not parse browser fetch result as JSON")
-                                    raise BrowserToolError("JSON parse failed")
-                            else:
-                                fetch_data = parsed
-                            
-                            content = fetch_data.get("content", "") if isinstance(fetch_data, dict) else ""
-                            step_result["result"] = f"Extracted {len(content) if content else 0} chars via browser"
-                            
-                            # Add to URLs visited
-                            result.urls_visited.append({
-                                "url": url,
-                                "title": fetch_data.get("title", "")[:100] if isinstance(fetch_data, dict) else "",
-                                "action": f"Navigated at step {step_num}"
-                            })
-                            
-                            current_context += f"\nStep {step_num} ({action}): Fetched content from '{url}'.\n"
-                            current_context += f"Extracted {len(content) if content else 0} characters.\n"
-                            
-                            # Check for relevant content
-                            if content:
-                                current_context += f"Content preview: {content[:CONTENT_PREVIEW_MAX_LENGTH]}...\n"
-                                
-                    except BrowserToolError:
+                                    
+                        except BrowserToolError:
                         # Fall back to regular fetch if browser failed
                         logger.info("Using regular fetch after BrowserTool failure")
                         
@@ -1400,6 +1500,7 @@ async def agentic_fetch(
     extraction_pipeline: Optional[ExtractionPipeline] = None,
     search_func: Optional[SearchFunc] = None,
     fetch_func: Optional[FetchFunc] = None,
+    firecrawl_client: Any = None,
     stream_callback: Optional[StreamCallback] = None,
     vision_enabled: bool = False
 ) -> Dict[str, Any]:
@@ -1417,6 +1518,8 @@ async def agentic_fetch(
             (must implement SearchFunc protocol)
         fetch_func: Async function for content fetching with signature (url) -> dict
             (must implement FetchFunc protocol)
+        firecrawl_client: Optional FirecrawlClient instance for enhanced scraping.
+            When provided, simple URL fetches use Firecrawl scrape API instead of browser-use.
         stream_callback: Optional async callback for streaming step progress updates.
             Called after each step completes with (step_num, action, description, result).
             Must implement StreamCallback protocol if provided.
@@ -1479,6 +1582,7 @@ async def agentic_fetch(
         extraction_pipeline=extraction_pipeline,
         search_func=search_func,
         fetch_func=fetch_func,
+        firecrawl_client=firecrawl_client,
         max_steps=max_steps,
         stream_callback=stream_callback,
         vision_enabled=vision_enabled

@@ -9,6 +9,7 @@ The atomic API fetches one URL per call:
 Returns a dict with 'url' and 'content', or 'error' on failure.
 
 Extraction Pipeline (applied in order, best result wins):
+0. Firecrawl   - AI-powered scraping (when USE_FIRECRAWL=true)
 1. Playwright  - dynamic rendering for JS-heavy / SPA pages
 2. Trafilatura - heuristic text-density extraction (fast, no JS)
 3. Readability - Mozilla-style article extraction
@@ -31,6 +32,22 @@ load_dotenv(project_root / ".env")
 
 # Import the actual implementation functions from server.py
 from src.mcp_server.server import fetch_web_content as real_fetch_web_content, _BINARY_DOC_EXTENSIONS
+from src.mcp_server.extraction import get_firecrawl_client
+
+
+async def _is_firecrawl_available() -> bool:
+    """Check if Firecrawl is configured and available."""
+    import os
+    if os.getenv("USE_FIRECRAWL", "false").lower() != "true":
+        return False
+    try:
+        client = get_firecrawl_client()
+        if client is None:
+            return False
+        result = await client.scrape("https://example.com", timeout=5)
+        return result is not None and result.word_count > 0
+    except Exception:
+        return False
 
 
 def parse_example_selection(selection: str | None) -> set[int]:
@@ -83,12 +100,12 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                      Run all 9 examples
+  %(prog)s                      Run all examples
   %(prog)s 1                    Run only example 1 (basic fetch)
   %(prog)s 1-3                  Run examples 1, 2, and 3
   %(prog)s 1,3,5                Run examples 1, 3, and 5
   %(prog)s 2-4,7                Run examples 2, 3, 4, and 7
-   
+    
 Example functions (numbered for selection):
   1. example_basic()          - Basic fetch with include_links option
   2. example_with_truncation()- Fetch with word-level truncation (num_words)
@@ -99,6 +116,13 @@ Example functions (numbered for selection):
   7. example_llm_refinement() - LLM refinement pass for semantic cleanup
   8. example_full_content_fetch() - Full content fetch of real-world URLs
   9. example_summary()        - Summarize content with LLM (summarize=True)
+ 10. example_firecrawl_scrape()     - Basic Firecrawl scrape (requires USE_FIRECRAWL=true)
+ 11. example_firecrawl_with_options() - Firecrawl with screenshot_full_page, use_clean_content
+ 12. example_firecrawl_map()        - Discover URLs via /map endpoint (requires USE_FIRECRAWL=true)
+ 13. example_firecrawl_batch_scrape() - Batch scrape multiple URLs (requires USE_FIRECRAWL=true)
+
+Note: Examples 10-13 require Firecrawl to be running (USE_FIRECRAWL=true).
+      Start Firecrawl via: ./start-firecrawl.sh or manually
         """
     )
     
@@ -426,6 +450,156 @@ async def example_summary():
             print("No summary extracted (LLM may not be configured)")
 
 
+async def example_firecrawl_scrape():
+    """Example 10: Basic Firecrawl scrape with markdown format.
+
+    Demonstrates direct use of the Firecrawl client for AI-powered scraping.
+    Requires USE_FIRECRAWL=true and Firecrawl running on FIRECRAWL_API_URL
+    (defaults to http://localhost:3002).
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 10: Firecrawl Scrape")
+    print("=" * 60)
+
+    if not await _is_firecrawl_available():
+        print("\nSkipped: Firecrawl is not available.")
+        print("Set USE_FIRECRAWL=true and ensure Firecrawl is running.")
+        return
+
+    client = get_firecrawl_client()
+    result = await client.scrape("https://example.com", timeout=30)
+
+    if result:
+        print(f"\n[Firecrawl] {result.url}")
+        print(f"Method: {result.method}")
+        print(f"Word count: {result.word_count}")
+        print("-" * 40)
+        preview = result.content[:500] if len(result.content) > 500 else result.content
+        print(preview + ("..." if len(result.content) > 500 else ""))
+    else:
+        print("\nFirecrawl scrape failed")
+
+
+async def example_firecrawl_with_options():
+    """Example 11: Firecrawl with screenshot and content options.
+
+    Demonstrates Firecrawl's screenshot_full_page option for capturing
+    full-page screenshots, and only_main_content for clean extraction.
+    Requires USE_FIRECRAWL=true and Firecrawl running.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 11: Firecrawl with Options")
+    print("=" * 60)
+
+    if not await _is_firecrawl_available():
+        print("\nSkipped: Firecrawl is not available.")
+        print("Set USE_FIRECRAWL=true and ensure Firecrawl is running.")
+        return
+
+    client = get_firecrawl_client()
+    url = "https://example.com"
+
+    result = await client.scrape(
+        url,
+        formats=["markdown"],
+        only_main_content=False,
+        timeout=30,
+    )
+
+    if result:
+        print(f"\n[Firecrawl] {result.url}")
+        print(f"Method: {result.method}")
+        print("-" * 40)
+        preview = result.content[:800] if len(result.content) > 800 else result.content
+        print(preview + ("..." if len(result.content) > 800 else ""))
+    else:
+        print("\nFirecrawl scrape failed")
+
+
+async def example_firecrawl_map():
+    """Example 12: Discover URLs on a site using Firecrawl /map endpoint.
+
+    Uses Firecrawl's map_site method to discover and list URLs starting
+    from a root URL. Requires USE_FIRECRAWL=true and Firecrawl running.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 12: Firecrawl Map Site")
+    print("=" * 60)
+
+    if not await _is_firecrawl_available():
+        print("\nSkipped: Firecrawl is not available.")
+        print("Set USE_FIRECRAWL=true and ensure Firecrawl is running.")
+        return
+
+    client = get_firecrawl_client()
+    urls = await client.map_site("https://example.com", search_depth=1)
+
+    if urls:
+        print(f"\nDiscovered {len(urls)} URLs from https://example.com:")
+        for i, discovered_url in enumerate(urls[:20], 1):
+            print(f"  {i}. {discovered_url}")
+        if len(urls) > 20:
+            print(f"  ... and {len(urls) - 20} more")
+    else:
+        print("\nNo URLs discovered or Firecrawl map failed")
+
+
+async def example_firecrawl_batch_scrape():
+    """Example 13: Batch scrape multiple URLs with Firecrawl.
+
+    Demonstrates submitting a batch scrape job and polling for results.
+    Requires USE_FIRECRAWL=true and Firecrawl running.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 13: Firecrawl Batch Scrape")
+    print("=" * 60)
+
+    if not await _is_firecrawl_available():
+        print("\nSkipped: Firecrawl is not available.")
+        print("Set USE_FIRECRAWL=true and ensure Firecrawl is running.")
+        return
+
+    client = get_firecrawl_client()
+    urls = [
+        "https://example.com",
+        "https://httpbin.org/html",
+    ]
+
+    job_response = await client.batch_scrape(urls, timeout=30)
+
+    if not job_response or "jobId" not in job_response:
+        print("\nBatch scrape submission failed")
+        return
+
+    job_id = job_response["jobId"]
+    print(f"\nSubmitted batch job: {job_id}")
+    print("Polling for results...")
+
+    import asyncio
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        await asyncio.sleep(2)
+        status = await client.get_batch_status(job_id)
+
+        if not status:
+            continue
+
+        status_val = status.get("status", "")
+        print(f"  Attempt {attempt + 1}: status={status_val}")
+
+        if status_val == "completed":
+            data = status.get("data", [])
+            for item in data[:5]:
+                url_item = item.get("url", "unknown")
+                content = item.get("markdown", "")[:200]
+                print(f"\n  URL: {url_item}")
+                print(f"  Content preview: {content}...")
+            break
+        elif status_val in ("failed", "cancelled"):
+            print("\nBatch job failed or was cancelled")
+            break
+
+
 async def main(selected_examples: set[int] | None = None):
     """Run fetch examples.
     
@@ -443,6 +617,10 @@ async def main(selected_examples: set[int] | None = None):
         (7, "example_llm_refinement", example_llm_refinement),
         (8, "example_full_content_fetch", example_full_content_fetch),
         (9, "example_summary", example_summary),
+        (10, "example_firecrawl_scrape", example_firecrawl_scrape),
+        (11, "example_firecrawl_with_options", example_firecrawl_with_options),
+        (12, "example_firecrawl_map", example_firecrawl_map),
+        (13, "example_firecrawl_batch_scrape", example_firecrawl_batch_scrape),
     ]
     
     # Determine which examples to run
@@ -457,7 +635,7 @@ async def main(selected_examples: set[int] | None = None):
         example_nums = sorted(selected_examples)
         print(f"# Running examples: {example_nums}")
     else:
-        print("# Running all 9 examples")
+        print("# Running all 13 examples")
     print("#" * 60)
     
     for example_num, example_name, example_func in examples_to_run:

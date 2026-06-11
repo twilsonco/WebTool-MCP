@@ -983,3 +983,220 @@ class TestPlaywrightFetchBinary:
             assert result is None  # download.path() raised, nothing captured
         finally:
             ContentExtractionPipeline._browser = original_browser
+
+
+# ---------------------------------------------------------------------------
+# Firecrawl integration (Tier 0)
+# ---------------------------------------------------------------------------
+
+class TestFirecrawlIntegration:
+    """Tests for Firecrawl Tier-0 extraction when USE_FIRECRAWL=true."""
+
+    @pytest.mark.asyncio
+    async def test_firecrawl_success_returns_immediately(self):
+        """When Firecrawl succeeds with rich content, legacy pipeline is not called."""
+        import os
+
+        firecrawl_result = ExtractionResult(content=_words(250), method="firecrawl")
+        mock_client = MagicMock()
+        mock_client.scrape = AsyncMock(return_value=firecrawl_result)
+        mock_get_client = MagicMock(return_value=mock_client)
+
+        pipeline = ContentExtractionPipeline()
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "true"}):
+            with patch("mcp_server.extraction.get_firecrawl_client", mock_get_client):
+                with patch.object(
+                    pipeline, "_render_with_playwright", new=AsyncMock()
+                ) as mock_pw:
+                    result = await pipeline.extract_from_html(
+                        html=RICH_HTML,
+                        url="https://example.com",
+                        use_playwright=True,
+                    )
+
+        assert result.method == "firecrawl"
+        assert result.word_count >= 200
+        mock_get_client.assert_called_once()
+        mock_client.scrape.assert_awaited_once_with("https://example.com")
+        mock_pw.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_firecrawl_thin_content_falls_back_to_legacy_pipeline(self):
+        """When Firecrawl returns thin content, legacy pipeline runs as fallback."""
+        import os
+
+        firecrawl_result = ExtractionResult(content=_words(50), method="firecrawl")
+        mock_client = MagicMock()
+        mock_client.scrape = AsyncMock(return_value=firecrawl_result)
+        mock_get_client = MagicMock(return_value=mock_client)
+
+        pipeline = ContentExtractionPipeline()
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "true"}):
+            with patch("mcp_server.extraction.get_firecrawl_client", mock_get_client):
+                with patch.object(
+                    ContentExtractionPipeline,
+                    "_extract_trafilatura",
+                    return_value=_words(250),
+                ):
+                    result = await pipeline.extract_from_html(
+                        html=SHORT_HTML,
+                        url="https://example.com",
+                        use_playwright=False,
+                    )
+
+        mock_client.scrape.assert_awaited_once()
+        assert "trafilatura" in result.method
+
+    @pytest.mark.asyncio
+    async def test_firecrawl_failure_falls_back_to_legacy_pipeline(self):
+        """When Firecrawl raises, legacy pipeline runs as fallback."""
+        import os
+
+        mock_client = MagicMock()
+        mock_client.scrape = AsyncMock(side_effect=Exception("Firecrawl unavailable"))
+        mock_get_client = MagicMock(return_value=mock_client)
+
+        pipeline = ContentExtractionPipeline()
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "true"}):
+            with patch("mcp_server.extraction.get_firecrawl_client", mock_get_client):
+                with patch.object(
+                    ContentExtractionPipeline,
+                    "_extract_trafilatura",
+                    return_value=_words(250),
+                ):
+                    result = await pipeline.extract_from_html(
+                        html=SHORT_HTML,
+                        url="https://example.com",
+                        use_playwright=False,
+                    )
+
+        assert "trafilatura" in result.method
+
+    @pytest.mark.asyncio
+    async def test_firecrawl_disabled_skips_tier(self):
+        """When USE_FIRECRAWL=false, Firecrawl is not called."""
+        import os
+
+        mock_get_client = MagicMock()
+
+        pipeline = ContentExtractionPipeline()
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "false"}):
+            with patch("mcp_server.extraction.get_firecrawl_client", mock_get_client):
+                result = await pipeline.extract_from_html(
+                    html=RICH_HTML,
+                    url="https://example.com",
+                    use_playwright=False,
+                )
+
+        mock_get_client.assert_not_called()
+        assert "trafilatura" in result.method
+
+    @pytest.mark.asyncio
+    async def test_extract_with_firecrawl_returns_none_when_disabled(self):
+        """_extract_with_firecrawl returns None immediately when USE_FIRECRAWL=false."""
+        import os
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "false"}):
+            result = await ContentExtractionPipeline._extract_with_firecrawl(
+                "https://example.com"
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_extract_with_firecrawl_returns_none_on_client_failure(self):
+        """_extract_with_firecrawl returns None when get_firecrawl_client returns None."""
+        import os
+
+        mock_get_client = MagicMock(return_value=None)
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "true"}):
+            with patch("mcp_server.extraction.get_firecrawl_client", mock_get_client):
+                result = await ContentExtractionPipeline._extract_with_firecrawl(
+                    "https://example.com"
+                )
+
+        assert result is None
+
+
+class TestCaptureScreenshotFirecrawl:
+    """Tests for capture_screenshot with Firecrawl delegation."""
+
+    @pytest.mark.asyncio
+    async def test_capture_screenshot_uses_firecrawl_when_params_set(self):
+        """When USE_FIRECRAWL=true and screenshot params are set, delegates to Firecrawl."""
+        import os
+
+        mock_client = MagicMock()
+        mock_client.screenshot = AsyncMock(return_value="base64_png_data")
+        mock_get_client = MagicMock(return_value=mock_client)
+
+        pipeline = ContentExtractionPipeline()
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "true"}):
+            with patch("mcp_server.extraction.get_firecrawl_client", mock_get_client):
+                result = await pipeline.capture_screenshot(
+                    url="https://example.com",
+                    full_page=True,
+                    quality=85,
+                    viewport_width=1920,
+                    viewport_height=1080,
+                )
+
+        assert result == "base64_png_data"
+        mock_client.screenshot.assert_awaited_once()
+        call_kwargs = mock_client.screenshot.call_args[1]
+        assert call_kwargs["full_page"] is True
+
+    @pytest.mark.asyncio
+    async def test_capture_screenshot_uses_playwright_when_no_params(self):
+        """When no extended params are set, uses Playwright even if USE_FIRECRAWL=true."""
+        import os
+
+        mock_get_client = MagicMock()
+
+        pipeline = ContentExtractionPipeline()
+        mock_browser = MagicMock()
+        mock_browser.browser_type = "chromium"
+        mock_context = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.goto = AsyncMock()
+        mock_page.screenshot = AsyncMock(return_value="base64_png")
+        mock_page.close = AsyncMock()
+        mock_context.new_page = MagicMock(return_value=mock_page)
+        mock_context.close = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "true"}):
+            with patch("mcp_server.extraction.get_firecrawl_client", mock_get_client):
+                with patch.object(
+                    ContentExtractionPipeline, "_get_browser", new=AsyncMock(return_value=mock_browser)
+                ):
+                    result = await pipeline.capture_screenshot(url="https://example.com")
+
+        assert result == "base64_png"
+        mock_page.goto.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_capture_screenshot_firecrawl_failure_returns_none(self):
+        """When Firecrawl screenshot fails, returns None."""
+        import os
+
+        mock_client = MagicMock()
+        mock_client.screenshot = AsyncMock(side_effect=Exception("screenshot failed"))
+        mock_get_client = MagicMock(return_value=mock_client)
+
+        pipeline = ContentExtractionPipeline()
+
+        with patch.dict(os.environ, {"USE_FIRECRAWL": "true"}):
+            with patch("mcp_server.extraction.get_firecrawl_client", mock_get_client):
+                result = await pipeline.capture_screenshot(
+                    url="https://example.com",
+                    full_page=True,
+                )
+
+        assert result is None

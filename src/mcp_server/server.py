@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from mcp_server.auth import StaticTokenVerifier, load_api_keys_from_env
 from mcp_server.llm import LLMManager, LLMAllProvidersFailedError
 from mcp_server.llm.parser import DOCLING_SUPPORTED_EXTENSIONS
-from mcp_server.extraction import ContentExtractionPipeline
+from mcp_server.extraction import ContentExtractionPipeline, get_firecrawl_client, FirecrawlClient
 from mcp_server.agentic import AgenticFetchAgent
 
 # Load .env from project root (one level up from src/)
@@ -79,6 +79,20 @@ llm_manager = LLMManager()
 
 # Content extraction pipeline (Playwright → Trafilatura → Docling → BS4)
 _extraction_pipeline = ContentExtractionPipeline()
+
+# Firecrawl configuration
+USE_FIRECRAWL = os.getenv("USE_FIRECRAWL", "").lower() in ("true", "1", "yes")
+_firecrawl_client: Optional[FirecrawlClient] = None
+
+
+async def _get_firecrawl_client() -> Optional[FirecrawlClient]:
+    """Get or create the Firecrawl client if USE_FIRECRAWL is enabled."""
+    global _firecrawl_client
+    if not USE_FIRECRAWL:
+        return None
+    if _firecrawl_client is None:
+        _firecrawl_client = await get_firecrawl_client()
+    return _firecrawl_client
 
 # Default headers for HTTP requests (User-Agent required by many sites)
 DEFAULT_HEADERS = {
@@ -442,6 +456,14 @@ async def fetch_web_content(
     use_llm_refinement: Optional[bool] = None,
     summarize: bool = False,
     summary_prompt: str = "",
+    use_firecrawl: Optional[bool] = None,
+    screenshot_full_page: bool = False,
+    screenshot_quality: int = 80,
+    screenshot_viewport_width: int = 1920,
+    screenshot_viewport_height: int = 1080,
+    use_clean_content: bool = False,
+    extract_schema: dict = None,
+    extract_prompt: str = None,
 ) -> dict:
     """
     Fetch a URL, extract its main content as Markdown, and optionally filter via regex.
@@ -459,6 +481,11 @@ async def fetch_web_content(
     Binary documents (PDF, DOCX, PPTX, XLSX, images) are routed directly to
     Docling (Tier 3) and bypass the HTML pipeline.
 
+    Firecrawl Enhancement:
+        When USE_FIRECRAWL=true or use_firecrawl=True, Firecrawl is used as the primary
+        extractor. Additional options become available: screenshot capture with full_page,
+        quality, viewport settings; onlyCleanContent mode; and JSON schema extraction.
+
     Args:
         url: The URL to fetch (required)
         include_links: When True, preserve anchor tag hrefs; when False (default), unwrap anchors keeping only text
@@ -471,12 +498,45 @@ async def fetch_web_content(
             When None (default), uses per-extension defaults: enabled for textual
             types (.html, .md) and disabled for data/binary types (.pdf, .docx,
             .pptx, .xlsx, .csv, .json, .xml).
+        summarize: If true, return an LLM-generated summary instead of raw content
+        summary_prompt: Custom prompt to guide the summarization (optional)
+        use_firecrawl: Force use of Firecrawl for this request (overrides USE_FIRECRAWL env var)
+        screenshot_full_page: Capture full page screenshot via Firecrawl (default False)
+        screenshot_quality: Screenshot quality 1-100 (default 80, Firecrawl only)
+        screenshot_viewport_width: Viewport width in pixels for screenshots (default 1920, Firecrawl only)
+        screenshot_viewport_height: Viewport height in pixels for screenshots (default 1080, Firecrawl only)
+        use_clean_content: Use onlyCleanContent mode in Firecrawl (default False)
+        extract_schema: JSON schema dict for structured extraction via Firecrawl
+        extract_prompt: Prompt string guiding JSON extraction via Firecrawl
 
     Returns:
         Dict with 'url' and 'content' keys, or 'error' on failure.
+        When screenshot capture is requested, includes 'screenshot_base64' instead of content.
+        When summarize=true, returns 'summary' key instead of content.
     """
     file_ext = _get_url_extension(url)
     is_binary = file_ext in _BINARY_DOC_EXTENSIONS
+
+    should_use_firecrawl = use_firecrawl if use_firecrawl is not None else USE_FIRECRAWL
+    firecrawl_client = await _get_firecrawl_client() if should_use_firecrawl else None
+
+    if firecrawl_client and screenshot_full_page:
+        try:
+            screenshot_b64 = await firecrawl_client.screenshot(
+                url=url,
+                full_page=screenshot_full_page,
+                quality=screenshot_quality,
+                width=screenshot_viewport_width,
+                height=screenshot_viewport_height,
+            )
+            if screenshot_b64:
+                return {
+                    "url": url,
+                    "screenshot_base64": screenshot_b64,
+                    "method": "firecrawl-screenshot"
+                }
+        except Exception as e:
+            pass
 
     # Apply per-extension defaults for LLM refinement if not explicitly set
     if use_llm_refinement is None:
@@ -632,6 +692,14 @@ async def api_fetch_web_content(
     use_llm_refinement: Annotated[bool, Body(description="Apply an optional LLM cleanup pass for content quality")] = False,
     summarize: Annotated[bool, Body(description="If true, return an LLM-generated summary instead of raw content")] = False,
     summary_prompt: Annotated[str, Body(description="Custom prompt to guide the summarization (optional)")] = "",
+    use_firecrawl: Annotated[Optional[bool], Body(description="Force use of Firecrawl for this request")] = None,
+    screenshot_full_page: Annotated[bool, Body(description="Capture full page screenshot via Firecrawl")] = False,
+    screenshot_quality: Annotated[int, Body(description="Screenshot quality 1-100 (default 80)")] = 80,
+    screenshot_viewport_width: Annotated[int, Body(description="Viewport width in pixels for screenshots (default 1920)")] = 1920,
+    screenshot_viewport_height: Annotated[int, Body(description="Viewport height in pixels for screenshots (default 1080)")] = 1080,
+    use_clean_content: Annotated[bool, Body(description="Use onlyCleanContent mode in Firecrawl")] = False,
+    extract_schema: Annotated[Optional[dict], Body(description="JSON schema dict for structured extraction via Firecrawl")] = None,
+    extract_prompt: Annotated[Optional[str], Body(description="Prompt guiding JSON extraction via Firecrawl")] = None,
 ) -> dict:
     return await fetch_web_content(
         url=url,
@@ -643,6 +711,14 @@ async def api_fetch_web_content(
         use_llm_refinement=use_llm_refinement,
         summarize=summarize,
         summary_prompt=summary_prompt,
+        use_firecrawl=use_firecrawl,
+        screenshot_full_page=screenshot_full_page,
+        screenshot_quality=screenshot_quality,
+        screenshot_viewport_width=screenshot_viewport_width,
+        screenshot_viewport_height=screenshot_viewport_height,
+        use_clean_content=use_clean_content,
+        extract_schema=extract_schema,
+        extract_prompt=extract_prompt,
     )
 
 
@@ -734,14 +810,21 @@ async def api_agentic_fetch(
     "/screenshot",
     operation_id="captureScreenshot",
     tags=["mcp-tool"],
-    summary="Capture a screenshot of a URL using Playwright",
+    summary="Capture a screenshot of a URL using Playwright or Firecrawl",
     dependencies=[Depends(_require_auth)],
 )
 async def api_capture_screenshot(
     url: Annotated[str, Body(description="The URL to capture (required)")],
+    full_page: Annotated[bool, Body(description="Capture the entire scrollable page")] = False,
+    quality: Annotated[int, Body(description="Image quality 1-100 for JPEG screenshots (default 80)")] = 80,
+    viewport_width: Annotated[int, Body(description="Viewport width in pixels (default 1920)")] = 1920,
+    viewport_height: Annotated[int, Body(description="Viewport height in pixels (default 1080)")] = 1080,
 ) -> dict:
     """
-    Capture a screenshot of a URL using Playwright.
+    Capture a screenshot of a URL.
+
+    When USE_FIRECRAWL=true, uses Firecrawl for screenshots with enhanced options.
+    Otherwise falls back to Playwright-based capture.
 
     Returns base64-encoded PNG image for analysis by vision-capable LLMs.
     Useful for CAPTCHAs, visual web elements, and interactive forms.
@@ -749,7 +832,122 @@ async def api_capture_screenshot(
     Returns:
         JSON with success status, image_base64 (PNG), and url.
     """
+    firecrawl_client = await _get_firecrawl_client()
+    if firecrawl_client:
+        try:
+            screenshot_b64 = await firecrawl_client.screenshot(
+                url=url,
+                full_page=full_page,
+                quality=quality,
+                width=viewport_width,
+                height=viewport_height,
+            )
+            if screenshot_b64:
+                return {"success": True, "image_base64": screenshot_b64, "url": url}
+        except Exception as e:
+            pass
     return await capture_screenshot_endpoint(url=url)
+
+
+@app.post(
+    "/batch-scrape",
+    operation_id="batchScrape",
+    tags=["mcp-tool"],
+    summary="Batch scrape multiple URLs using Firecrawl",
+    dependencies=[Depends(_require_auth)],
+)
+async def api_batch_scrape(
+    urls: Annotated[list[str], Body(description="List of URLs to scrape")],
+    only_main_content: Annotated[bool, Body(description="Extract only main content (default True)")] = True,
+) -> dict:
+    """
+    Scrape multiple URLs in one call using Firecrawl.
+
+    Returns a job ID for status polling. Poll /batch-status/{job_id} to get results.
+
+    Requires USE_FIRECRAWL=true environment variable.
+    """
+    if not USE_FIRECRAWL:
+        return {"error": "Firecrawl is not enabled. Set USE_FIRECRAWL=true in .env"}
+
+    firecrawl_client = await _get_firecrawl_client()
+    if not firecrawl_client:
+        return {"error": "Firecrawl client could not be initialized"}
+
+    try:
+        result = await firecrawl_client.batch_scrape(
+            urls=urls,
+            only_main_content=only_main_content,
+        )
+        if result and "jobId" in result:
+            return {"success": True, "job_id": result["jobId"]}
+        elif result and "job_id" in result:
+            return {"success": True, "job_id": result["job_id"]}
+        return {"error": "No job ID returned from Firecrawl", "details": result}
+    except Exception as e:
+        return {"error": f"Batch scrape failed: {str(e)}"}
+
+
+@app.post(
+    "/batch-status/{job_id}",
+    operation_id="batchStatus",
+    tags=["mcp-tool"],
+    summary="Get batch scrape job status and results",
+    dependencies=[Depends(_require_auth)],
+)
+async def api_batch_status(job_id: str) -> dict:
+    """
+    Poll for batch scrape results from Firecrawl.
+
+    Check the returned status to see if the job is complete, then access
+    the scraped data in the 'data' field.
+
+    Requires USE_FIRECRAWL=true environment variable.
+    """
+    if not USE_FIRECRAWL:
+        return {"error": "Firecrawl is not enabled. Set USE_FIRECRAWL=true in .env"}
+
+    firecrawl_client = await _get_firecrawl_client()
+    if not firecrawl_client:
+        return {"error": "Firecrawl client could not be initialized"}
+
+    try:
+        result = await firecrawl_client.get_batch_status(job_id)
+        if result:
+            return result
+        return {"error": f"No status returned for job {job_id}"}
+    except Exception as e:
+        return {"error": f"Batch status check failed: {str(e)}"}
+
+
+@app.post(
+    "/map",
+    operation_id="mapWebsite",
+    tags=["mcp-tool"],
+    summary="Discover all URLs on a website using Firecrawl",
+    dependencies=[Depends(_require_auth)],
+)
+async def api_map_website(url: Annotated[str, Body(description="Root URL to start crawling from")]) -> dict:
+    """
+    Discover all URLs on a site without scraping content.
+
+    Uses Firecrawl's map endpoint to discover and return URLs found
+    during crawl of the specified website.
+
+    Requires USE_FIRECRAWL=true environment variable.
+    """
+    if not USE_FIRECRAWL:
+        return {"error": "Firecrawl is not enabled. Set USE_FIRECRAWL=true in .env"}
+
+    firecrawl_client = await _get_firecrawl_client()
+    if not firecrawl_client:
+        return {"error": "Firecrawl client could not be initialized"}
+
+    try:
+        urls = await firecrawl_client.map_site(url)
+        return {"url": url, "urls": urls, "count": len(urls)}
+    except Exception as e:
+        return {"error": f"Map site failed: {str(e)}"}
 
 
 @app.get("/")

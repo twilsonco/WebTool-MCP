@@ -3,6 +3,9 @@ Multi-tiered content extraction pipeline.
 
 Implements a cascading extraction strategy with graceful tier fallback:
 
+  Tier 0  – Firecrawl (optional, when USE_FIRECRAWL=true): primary scraping
+             via the Firecrawl API; if it fails or returns thin content (<200 words),
+             the entire legacy pipeline runs as one fallback block.
   Tier 1  – Dynamic Rendering (Playwright): executes JavaScript and waits for
              the page to fully hydrate before handing the DOM to Tier 2.
   Tier 2  – Heuristic/Text-Density (Trafilatura → Readability-lxml): fast
@@ -23,10 +26,13 @@ overhead.
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+USE_FIRECRAWL = os.getenv("USE_FIRECRAWL", "false").lower() == "true"
 
 # Minimum word count considered a successful extraction result.
 _MIN_WORD_COUNT = 50
@@ -129,6 +135,33 @@ class ContentExtractionPipeline:
                 except Exception:
                     pass
                 cls._playwright_instance = None
+
+    # ---------------------------------------------------------------------- #
+    # Tier 0 – Firecrawl (when USE_FIRECRAWL=true)                           #
+    # ---------------------------------------------------------------------- #
+
+    @classmethod
+    async def _extract_with_firecrawl(cls, url: str) -> Optional[ExtractionResult]:
+        """Try Firecrawl scrape as primary extraction method.
+
+        Returns an ExtractionResult if Firecrawl succeeds with at least
+        _RICH_WORD_COUNT words; otherwise returns None to trigger the legacy pipeline.
+        """
+        if not USE_FIRECRAWL:
+            return None
+        try:
+            from mcp_server.extraction import get_firecrawl_client
+
+            client = get_firecrawl_client()
+            if client is None:
+                return None
+            result = await client.scrape(url)
+            if result and result.word_count >= _RICH_WORD_COUNT:
+                return result
+            return None
+        except Exception as exc:
+            logger.debug("Firecrawl extraction failed: %s", exc)
+            return None
 
     async def _render_with_playwright(
         self, url: str, timeout: float = 20.0
@@ -325,6 +358,10 @@ class ContentExtractionPipeline:
         obtains a result above ``_RICH_WORD_COUNT``.  If a tier fails or
         returns insufficient content the next tier is tried automatically.
 
+        When USE_FIRECRAWL=true, Firecrawl scrape is attempted first (Tier 0).
+        If Firecrawl succeeds with rich content (>=200 words), it returns immediately.
+        On failure or thin content, the entire legacy pipeline runs as one fallback block.
+
         Args:
             html: Pre-fetched static HTML used when Playwright is disabled or
                   fails; always available as the Tier-1 fallback source.
@@ -341,7 +378,13 @@ class ContentExtractionPipeline:
             :class:`ExtractionResult` carrying the best extracted content and
             a description of the tier(s) used (e.g. ``"playwright+trafilatura"``).
         """
-        # --- Tier 1: Dynamic Rendering (Playwright) -----------------------
+        # --- Tier 0: Firecrawl (when USE_FIRECRAWL=true) ------------------
+        if USE_FIRECRAWL:
+            firecrawl_result = await self._extract_with_firecrawl(url)
+            if firecrawl_result is not None:
+                return firecrawl_result
+
+        # --- Legacy pipeline fallback (runs as one block when Firecrawl fails/thins out) ---
         working_html = html
         method_prefix = "static"
 
@@ -438,13 +481,37 @@ class ContentExtractionPipeline:
         except Exception:
             return ExtractionResult(content="", method="failed")
 
-    async def capture_screenshot(self, url: str) -> Optional[str]:
+    async def capture_screenshot(
+        self,
+        url: str,
+        full_page: bool = False,
+        quality: Optional[int] = None,
+        viewport_width: Optional[int] = None,
+        viewport_height: Optional[int] = None,
+    ) -> Optional[str]:
         """
         Navigate to URL and capture a screenshot as base64 PNG.
+
+        When USE_FIRECRAWL=true and any of the extended options (full_page, quality,
+        viewport_width, viewport_height) are set, delegates to Firecrawl's screenshot
+        API instead of Playwright.
+
+        Args:
+            url: The URL to navigate to.
+            full_page: Capture the entire scrollable page (default False).
+            quality: Image quality 1-100 for JPEG screenshots (default None).
+            viewport_width: Browser viewport width in pixels (default None).
+            viewport_height: Browser viewport height in pixels (default None).
 
         Returns:
             Base64-encoded PNG image, or None on failure.
         """
+        if USE_FIRECRAWL and any(v is not None for v in [full_page, quality, viewport_width, viewport_height]):
+            return await self._capture_screenshot_firecrawl(
+                url, full_page=full_page, quality=quality,
+                viewport_width=viewport_width, viewport_height=viewport_height
+            )
+
         try:
             browser = await self._get_browser()
             if browser is None:
@@ -467,6 +534,37 @@ class ContentExtractionPipeline:
                 await context.close()
         except Exception as exc:
             logger.warning("Screenshot capture failed for %s: %s", url, exc)
+            return None
+
+    async def _capture_screenshot_firecrawl(
+        self,
+        url: str,
+        full_page: bool = False,
+        quality: Optional[int] = None,
+        viewport_width: Optional[int] = None,
+        viewport_height: Optional[int] = None,
+    ) -> Optional[str]:
+        """Capture screenshot using Firecrawl API.
+
+        Returns base64-encoded image string or None on failure.
+        """
+        try:
+            from mcp_server.extraction import get_firecrawl_client
+
+            client = get_firecrawl_client()
+            if client is None:
+                return None
+
+            screenshot_data = await client.screenshot(
+                url,
+                full_page=full_page,
+                quality=quality,
+                width=viewport_width,
+                height=viewport_height,
+            )
+            return screenshot_data
+        except Exception as exc:
+            logger.debug("Firecrawl screenshot failed: %s", exc)
             return None
 
     async def playwright_fetch_binary(
