@@ -268,14 +268,11 @@ async def example_pdf_fetch():
     files_dir = project_root / "examples" / "files"
     filenames = [
         "Banana Split Decoded.pdf",
-        "creative resume.doc",
         "creative resume.docx",
         "Family Budget.csv",
-        "Family Budget.xls",
         "Family Budget.xlsx",
         "Family Budget.xml",
         "file-sample_150kB.pdf",
-        "Presentation.ppt",
         "Presentation.pptx",
     ]
 
