@@ -280,6 +280,12 @@ class FirecrawlClient:
         if formats is None:
             formats = ["markdown"]
 
+        # Extract httpx-specific kwargs before building API payload
+        http_kwargs = {}
+        for key in ("timeout", "follow_redirects", "verify"):
+            if key in kwargs:
+                http_kwargs[key] = kwargs.pop(key)
+
         payload: dict[str, Any] = {
             "urls": urls,
             "formats": formats,
@@ -295,7 +301,16 @@ class FirecrawlClient:
                 headers=self._build_headers(),
             )
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+
+            # Extract job ID from various possible response formats
+            if isinstance(data, dict):
+                return {
+                    "jobId": data.get("id") or data.get("jobId") or data.get("job_id"),
+                    "url": data.get("url"),
+                }
+
+            return {}
 
         except httpx.HTTPStatusError as e:
             logger.warning("Firecrawl batch scrape HTTP error: %s", e.response.status_code)
@@ -336,15 +351,14 @@ class FirecrawlClient:
 
         Args:
             url: The root URL to start crawling from.
-            search_depth: How deep to crawl (default 1).
+            search_depth: How deep to crawl (default 1). Note: the Firecrawl API
+                may not support this parameter in all versions.
 
         Returns:
             List of discovered URLs.
         """
-        payload = {
-            "url": url,
-            "searchDepth": search_depth,
-        }
+        # Build minimal payload - some Firecrawl versions don't accept extra params
+        payload = {"url": url}
 
         try:
             client = await self._get_client()
@@ -356,8 +370,16 @@ class FirecrawlClient:
             response.raise_for_status()
             data = response.json()
 
-            if isinstance(data, dict) and "urls" in data:
-                return data["urls"]
+            # Handle different response formats
+            if isinstance(data, dict):
+                # Try 'links' first (Firecrawl v2 API)
+                if "links" in data and isinstance(data["links"], list):
+                    return data["links"]
+                # Fall back to 'urls' (older format)
+                if "urls" in data:
+                    urls = data["urls"]
+                    if isinstance(urls, list):
+                        return urls
             if isinstance(data, list):
                 return data
             return []

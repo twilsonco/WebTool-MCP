@@ -43,7 +43,8 @@ async def _is_firecrawl_available() -> bool:
         client = await get_firecrawl_client()
         if client is None:
             return False
-        result = await client.scrape("https://example.com", timeout=5)
+        # Use httpbin.org which is a reliable public test endpoint
+        result = await client.scrape("https://httpbin.org/html", timeout=5)
         return result is not None and result.word_count > 0
     except Exception:
         return False
@@ -524,16 +525,16 @@ async def example_firecrawl_map():
         return
 
     client = await get_firecrawl_client()
-    urls = await client.map_site("https://example.com", search_depth=1)
+    urls = await client.map_site("https://docs.pytest.org/en/stable/", search_depth=1)
 
     if urls:
-        print(f"\nDiscovered {len(urls)} URLs from https://example.com:")
+        print(f"\nDiscovered {len(urls)} URLs from https://docs.pytest.org/en/stable/:")
         for i, discovered_url in enumerate(urls[:20], 1):
             print(f"  {i}. {discovered_url}")
         if len(urls) > 20:
             print(f"  ... and {len(urls) - 20} more")
     else:
-        print("\nNo URLs discovered or Firecrawl map failed")
+        print("\nNo URLs discovered (this may happen if the site has no sitemap)")
 
 
 async def example_firecrawl_batch_scrape():
@@ -553,8 +554,8 @@ async def example_firecrawl_batch_scrape():
 
     client = await get_firecrawl_client()
     urls = [
-        "https://example.com",
         "https://httpbin.org/html",
+        "https://docs.pytest.org/en/stable/",
     ]
 
     job_response = await client.batch_scrape(urls, timeout=30)
