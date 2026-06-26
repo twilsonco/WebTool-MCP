@@ -31,6 +31,22 @@ load_dotenv(project_root / ".env")
 
 # Import the actual implementation functions from server.py
 from src.mcp_server.server import fetch_web_content as real_fetch_web_content, _BINARY_DOC_EXTENSIONS
+from src.mcp_server.extraction import get_firecrawl_client
+
+
+async def _is_firecrawl_available() -> bool:
+    """Check if Firecrawl is configured and available."""
+    import os
+    if os.getenv("USE_FIRECRAWL", "false").lower() != "true":
+        return False
+    try:
+        client = await get_firecrawl_client()
+        if client is None:
+            return False
+        result = await client.scrape("https://example.com", timeout=5)
+        return result is not None and result.word_count > 0
+    except Exception:
+        return False
 
 
 def parse_example_selection(selection: str | None) -> set[int]:
@@ -354,7 +370,7 @@ async def example_full_content_fetch():
     urls_to_fetch = [
         "https://github.com/docling-project/docling/discussions/1953",
         "https://file-examples.com/wp-content/storage/2017/10/file-sample_150kB.pdf",
-        "https://stackoverflow.com/questions/9919509/need-help-to-generate-report-in-pdf-or-doc-using-python",
+        "https://docs.pytest.org/en/stable/",
     ]
 
     for url in urls_to_fetch:
@@ -424,6 +440,156 @@ async def example_summary():
             print(f"{'─' * 60}")
         else:
             print("No summary extracted (LLM may not be configured)")
+
+
+async def example_firecrawl_scrape():
+    """Example 10: Basic Firecrawl scrape with markdown format.
+
+    Demonstrates direct use of the Firecrawl client for AI-powered scraping.
+    Requires USE_FIRECRAWL=true and Firecrawl running on FIRECRAWL_API_URL
+    (defaults to http://localhost:3002).
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 10: Firecrawl Scrape")
+    print("=" * 60)
+
+    if not await _is_firecrawl_available():
+        print("\nSkipped: Firecrawl is not available.")
+        print("Set USE_FIRECRAWL=true and ensure Firecrawl is running.")
+        return
+
+    client = await get_firecrawl_client()
+    result = await client.scrape("https://example.com", timeout=30)
+
+    if result:
+        print(f"\n[Firecrawl] https://example.com")
+        print(f"Method: {result.method}")
+        print(f"Word count: {result.word_count}")
+        print("-" * 40)
+        preview = result.content[:500] if len(result.content) > 500 else result.content
+        print(preview + ("..." if len(result.content) > 500 else ""))
+    else:
+        print("\nFirecrawl scrape failed")
+
+
+async def example_firecrawl_with_options():
+    """Example 11: Firecrawl with screenshot and content options.
+
+    Demonstrates Firecrawl's screenshot_full_page option for capturing
+    full-page screenshots, and only_main_content for clean extraction.
+    Requires USE_FIRECRAWL=true and Firecrawl running.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 11: Firecrawl with Options")
+    print("=" * 60)
+
+    if not await _is_firecrawl_available():
+        print("\nSkipped: Firecrawl is not available.")
+        print("Set USE_FIRECRAWL=true and ensure Firecrawl is running.")
+        return
+
+    client = await get_firecrawl_client()
+    url = "https://example.com"
+
+    result = await client.scrape(
+        url,
+        formats=["markdown"],
+        only_main_content=False,
+        timeout=30,
+    )
+
+    if result:
+        print(f"\n[Firecrawl] {url}")
+        print(f"Method: {result.method}")
+        print("-" * 40)
+        preview = result.content[:800] if len(result.content) > 800 else result.content
+        print(preview + ("..." if len(result.content) > 800 else ""))
+    else:
+        print("\nFirecrawl scrape failed")
+
+
+async def example_firecrawl_map():
+    """Example 12: Discover URLs on a site using Firecrawl /map endpoint.
+
+    Uses Firecrawl's map_site method to discover and list URLs starting
+    from a root URL. Requires USE_FIRECRAWL=true and Firecrawl running.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 12: Firecrawl Map Site")
+    print("=" * 60)
+
+    if not await _is_firecrawl_available():
+        print("\nSkipped: Firecrawl is not available.")
+        print("Set USE_FIRECRAWL=true and ensure Firecrawl is running.")
+        return
+
+    client = await get_firecrawl_client()
+    urls = await client.map_site("https://example.com", search_depth=1)
+
+    if urls:
+        print(f"\nDiscovered {len(urls)} URLs from https://example.com:")
+        for i, discovered_url in enumerate(urls[:20], 1):
+            print(f"  {i}. {discovered_url}")
+        if len(urls) > 20:
+            print(f"  ... and {len(urls) - 20} more")
+    else:
+        print("\nNo URLs discovered or Firecrawl map failed")
+
+
+async def example_firecrawl_batch_scrape():
+    """Example 13: Batch scrape multiple URLs with Firecrawl.
+
+    Demonstrates submitting a batch scrape job and polling for results.
+    Requires USE_FIRECRAWL=true and Firecrawl running.
+    """
+    print("\n" + "=" * 60)
+    print("EXAMPLE 13: Firecrawl Batch Scrape")
+    print("=" * 60)
+
+    if not await _is_firecrawl_available():
+        print("\nSkipped: Firecrawl is not available.")
+        print("Set USE_FIRECRAWL=true and ensure Firecrawl is running.")
+        return
+
+    client = await get_firecrawl_client()
+    urls = [
+        "https://example.com",
+        "https://httpbin.org/html",
+    ]
+
+    job_response = await client.batch_scrape(urls, timeout=30)
+
+    if not job_response or "jobId" not in job_response:
+        print("\nBatch scrape submission failed")
+        return
+
+    job_id = job_response["jobId"]
+    print(f"\nSubmitted batch job: {job_id}")
+    print("Polling for results...")
+
+    import asyncio
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        await asyncio.sleep(2)
+        status = await client.get_batch_status(job_id)
+
+        if not status:
+            continue
+
+        status_val = status.get("status", "")
+        print(f"  Attempt {attempt + 1}: status={status_val}")
+
+        if status_val == "completed":
+            data = status.get("data", [])
+            for item in data[:5]:
+                url_item = item.get("url", "unknown")
+                content = item.get("markdown", "")[:200]
+                print(f"\n  URL: {url_item}")
+                print(f"  Content preview: {content}...")
+            break
+        elif status_val in ("failed", "cancelled"):
+            print("\nBatch job failed or was cancelled")
+            break
 
 
 async def main(selected_examples: set[int] | None = None):

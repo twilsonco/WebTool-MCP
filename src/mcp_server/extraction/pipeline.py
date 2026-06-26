@@ -130,6 +130,33 @@ class ContentExtractionPipeline:
                     pass
                 cls._playwright_instance = None
 
+    # ---------------------------------------------------------------------- #
+    # Tier 0 – Firecrawl (when USE_FIRECRAWL=true)                           #
+    # ---------------------------------------------------------------------- #
+
+    @classmethod
+    async def _extract_with_firecrawl(cls, url: str) -> Optional[ExtractionResult]:
+        """Try Firecrawl scrape as primary extraction method.
+
+        Returns an ExtractionResult if Firecrawl succeeds with at least
+        _RICH_WORD_COUNT words; otherwise returns None to trigger the legacy pipeline.
+        """
+        if not USE_FIRECRAWL:
+            return None
+        try:
+            from mcp_server.extraction import get_firecrawl_client
+
+            client = await get_firecrawl_client()
+            if client is None:
+                return None
+            result = await client.scrape(url)
+            if result and result.word_count >= _RICH_WORD_COUNT:
+                return result
+            return None
+        except Exception as exc:
+            logger.debug("Firecrawl extraction failed: %s", exc)
+            return None
+
     async def _render_with_playwright(
         self, url: str, timeout: float = 20.0
     ) -> Optional[str]:
