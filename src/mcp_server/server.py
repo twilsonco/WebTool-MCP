@@ -523,7 +523,9 @@ async def fetch_web_content(
                 if is_binary and not is_html_response:
                     # URL directly served binary data – parse it immediately.
                     extraction = await _extraction_pipeline.extract_from_bytes(
-                        resp.content, file_ext, include_links
+                        resp.content, file_ext, include_links,
+                        use_llm_refinement=use_llm_refinement,
+                        llm_manager=llm_manager if use_llm_refinement else None,
                     )
                 elif is_binary:
                     # Binary-extension URL returned HTML (loading/redirect page).
@@ -531,7 +533,9 @@ async def fetch_web_content(
                     binary_bytes = await _extraction_pipeline.playwright_fetch_binary(url)
                     if binary_bytes is not None:
                         extraction = await _extraction_pipeline.extract_from_bytes(
-                            binary_bytes, file_ext, include_links
+                            binary_bytes, file_ext, include_links,
+                            use_llm_refinement=use_llm_refinement,
+                            llm_manager=llm_manager if use_llm_refinement else None,
                         )
                     else:
                         extraction = await _extraction_pipeline.extract_from_html(

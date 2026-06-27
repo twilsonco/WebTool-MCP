@@ -391,8 +391,15 @@ class ContentExtractionPipeline:
                 content = readability_content
                 method = f"{method_prefix}+readability"
 
-        # Early exit when content is already rich enough.
+        # Early exit when content is already rich enough (unless LLM refinement is requested).
         if content is not None and len(content.split()) >= _RICH_WORD_COUNT:
+            # If LLM refinement is requested, apply it even for rich content.
+            if use_llm_refinement and llm_manager is not None:
+                logger.info("Applying LLM refinement for rich content (%d words)", len(content.split()))
+                refined = await self._refine_with_llm(content, llm_manager)
+                if refined and len(refined.split()) > len(content.split()):
+                    content = refined
+                    method = f"{method}+llm"
             return ExtractionResult(content=content, method=method)
 
         # --- Tier 3: Layout-Aware (Docling) --------------------------------
@@ -404,6 +411,13 @@ class ContentExtractionPipeline:
             method = f"{method_prefix}+docling"
 
         if content is not None and len(content.split()) >= _RICH_WORD_COUNT:
+            # Apply LLM refinement for rich content from Docling too.
+            if use_llm_refinement and llm_manager is not None:
+                logger.info("Applying LLM refinement for rich docling content (%d words)", len(content.split()))
+                refined = await self._refine_with_llm(content, llm_manager)
+                if refined and len(refined.split()) > len(content.split()):
+                    content = refined
+                    method = f"{method}+llm"
             return ExtractionResult(content=content, method=method)
 
         # --- Tier 4: BeautifulSoup (always succeeds) ----------------------
@@ -421,8 +435,8 @@ class ContentExtractionPipeline:
             use_llm_refinement
             and llm_manager is not None
             and content
-            and len(content.split()) < _LLM_TRIGGER_WORD_COUNT
         ):
+            logger.info("Applying LLM refinement for post-processing content")
             refined = await self._refine_with_llm(content, llm_manager)
             if refined and len(refined.split()) > len(content.split()):
                 content = refined
@@ -435,6 +449,8 @@ class ContentExtractionPipeline:
         content_bytes: bytes,
         file_extension: str,
         include_links: bool = True,
+        use_llm_refinement: Optional[bool] = None,
+        llm_manager=None,
     ) -> ExtractionResult:
         """Extract content from a binary document (PDF, DOCX, images, …).
 
@@ -454,14 +470,39 @@ class ContentExtractionPipeline:
         from mcp_server.llm.parser import parse_with_docling, parse_html_with_beautifulsoup
 
         result = await parse_with_docling(content_bytes, file_extension, include_links)
+
+        # Fallback if Docling failed.
         if result and len(result.split()) >= _MIN_WORD_COUNT:
-            return ExtractionResult(content=result, method="docling")
+            content: str = result
+            method = "docling"
+
+            # --- Optional LLM cognitive refinement (only for successful docling) -----
+            if (
+                use_llm_refinement
+                and llm_manager is not None
+            ):
+                refined = await self._refine_with_llm(content, llm_manager)
+                if refined and len(refined.split()) > len(content.split()):
+                    content = refined
+                    method = f"{method}+llm"
+
+            return ExtractionResult(content=content, method=method)
 
         # Fallback: attempt to decode bytes as UTF-8 HTML/text.
         try:
             html = content_bytes.decode("utf-8", errors="ignore")
-            bs_result = await parse_html_with_beautifulsoup(html, include_links)
-            return ExtractionResult(content=bs_result or "", method="beautifulsoup")
+            bs_content = await parse_html_with_beautifulsoup(html, include_links) or ""
+
+            # --- Optional LLM cognitive refinement (only for successful beautifulsoup) ---
+            if (
+                use_llm_refinement
+                and llm_manager is not None
+            ):
+                refined = await self._refine_with_llm(bs_content, llm_manager)
+                if refined and len(refined.split()) > len(bs_content.split()):
+                    bs_content = refined
+
+            return ExtractionResult(content=bs_content, method="beautifulsoup")
         except Exception:
             return ExtractionResult(content="", method="failed")
 
